@@ -1,0 +1,86 @@
+(* Content-type: application/vnd.wolfram.mathematica *)
+
+(*** Wolfram Notebook File ***)
+(* http://www.wolfram.com/nb *)
+
+(* CreatedBy='Wolfram 14.2' *)
+
+(*CacheID: 234*)
+(* Internal cache information:
+NotebookFileLineBreakTest
+NotebookFileLineBreakTest
+NotebookDataPosition[       154,          7]
+NotebookDataLength[      2755,         77]
+NotebookOptionsPosition[      1813,         52]
+NotebookOutlinePosition[      2347,         71]
+CellTagsIndexPosition[      2304,         68]
+WindowTitle->SMEFT ADM Explorer
+WindowFrame->Normal*)
+
+(* Beginning of Notebook Content *)
+Notebook[{
+Cell["SMEFT ADM Explorer", "Title",ExpressionUUID->"92488422-c469-478a-b2ab-fa1969834fe2"],
+
+Cell["\<\
+Interactive graph of the one- and two-loop anomalous dimension matrix of the \
+dimension-six SMEFT (Mainz basis). Evaluate the two input cells below (or \
+accept the automatic evaluation of the initialization cells). Click an arrow \
+for its entry, click an operator to recenter the graph.\
+\>", "Text",ExpressionUUID->"fee6aa59-d543-44fd-bff2-20ff680023c0"],
+
+Cell[CellGroupData[{
+
+Cell["Loader (package source and data)", "Section",ExpressionUUID->"a1b6af41-cbab-4943-86a3-a4a1a644eb71"],
+
+Cell["\<\
+(* loads SMEFTADMExplorer.m and ADMData.wxf from the folder of this notebook *)
+Get[FileNameJoin[{NotebookDirectory[], \"SMEFTADMExplorer.m\"}]];
+SMEFTADMExplorer`Private`$notebookData = \
+SMEFTADMExplorer`LoadADMData[FileNameJoin[{NotebookDirectory[], \"ADMData.wxf\
+\"}]];\
+\>", "Input",
+ InitializationCell->True,
+ CellLabel->"load",ExpressionUUID->"cbaf2fe9-b99e-4873-a111-8e1f3cb265b3"]
+}, Closed]],
+
+Cell["\<\
+SMEFTADMExplorer`SMEFTADMExplorer[SMEFTADMExplorer`Private`$notebookData, \
+\"cH\"]\
+\>", "Input",
+ InitializationCell->True,
+ CellLabel->"launch",ExpressionUUID->"7714510b-e5c6-4c8a-8229-7fc32587034a"]
+},
+CellGrouping->Manual,
+WindowSize->{1500, 900},
+WindowTitle->"SMEFT ADM Explorer",
+FrontEndVersion->"14.2 for Linux x86 (64-bit) (March 16, 2025)",
+StyleDefinitions->FrontEnd`FileName[{$RootDirectory, "home", "lukas", 
+   ".Wolfram", "FrontEnd", "Stylesheets"}, "CustomDarkish.nb", 
+  CharacterEncoding -> "UTF-8"],
+ExpressionUUID->"05432a95-0c41-4cb4-8955-456b08b28b1a"
+]
+(* End of Notebook Content *)
+
+(* Internal cache information *)
+(*CellTagsOutline
+CellTagsIndex->{}
+*)
+(*CellTagsIndex
+CellTagsIndex->{}
+*)
+(*NotebookFileOutline
+Notebook[{
+Cell[586, 21, 90, 0, 70, "Title",ExpressionUUID->"92488422-c469-478a-b2ab-fa1969834fe2"],
+Cell[679, 23, 368, 5, 70, "Text",ExpressionUUID->"fee6aa59-d543-44fd-bff2-20ff680023c0"],
+Cell[CellGroupData[{
+Cell[1072, 32, 106, 0, 70, "Section",ExpressionUUID->"a1b6af41-cbab-4943-86a3-a4a1a644eb71"],
+Cell[1181, 34, 401, 8, 70, "Input",ExpressionUUID->"cbaf2fe9-b99e-4873-a111-8e1f3cb265b3",
+ InitializationCell->True]
+}, Closed]],
+Cell[1597, 45, 212, 5, 70, "Input",ExpressionUUID->"7714510b-e5c6-4c8a-8229-7fc32587034a",
+ InitializationCell->True]
+}
+]
+*)
+
+(* End of internal cache information *)
