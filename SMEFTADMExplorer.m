@@ -34,7 +34,7 @@ $SMEFTADMExplorerDirectory::usage = "Directory of the package file.";
 
 Begin["`Private`"];
 
-$SMEFTADMExplorerDirectory = If[StringQ[$InputFileName] && $InputFileName =!= "", DirectoryName[$InputFileName], Directory[]];
+$SMEFTADMExplorerDirectory = If[StringQ[$InputFileName] && $InputFileName =!= "", DirectoryName[$InputFileName], None];
 
 (* ================================================================================================
    1. Operator table (Mainz basis)
@@ -1191,7 +1191,7 @@ Options[MakeExplorerNotebook] = {"EmbedData" -> True, "DataFile" -> "ADMData.wxf
 
 MakeExplorerNotebook[nbFile_String, OptionsPattern[]] := Module[{embed = TrueQ[OptionValue["EmbedData"]], dataFile = OptionValue["DataFile"],
     pkg = OptionValue["PackageFile"], start = OptionValue["StartOperator"], cells, loadCode, launch, nb, bytes, src},
-  If[pkg === Automatic, pkg = FileNameJoin[{$SMEFTADMExplorerDirectory, "SMEFTADMExplorer.m"}]];
+  If[pkg === Automatic, pkg = FileNameJoin[{If[$SMEFTADMExplorerDirectory === None, Directory[], $SMEFTADMExplorerDirectory], "SMEFTADMExplorer.m"}]];
   If[! FileExistsQ[dataFile], Message[MakeExplorerNotebook::nodata, dataFile]; Return[$Failed]];
   launch = "SMEFTADMExplorer`SMEFTADMExplorer[SMEFTADMExplorer`Private`$notebookData, \"" <> start <> "\"]";
   If[embed,
@@ -1208,10 +1208,12 @@ MakeExplorerNotebook[nbFile_String, OptionsPattern[]] := Module[{embed = TrueQ[O
     Cell["Interactive graph of the one- and two-loop anomalous dimension matrix of the dimension-six SMEFT (Mainz basis). Evaluate the two input cells below (or accept the automatic evaluation of the initialization cells). Click an arrow for its entry, click an operator to recenter the graph.", "Text"],
     Cell[CellGroupData[{Cell["Loader (package source and data)", "Section"], Cell[loadCode, "Input", InitializationCell -> True, CellLabel -> "load"]}, Closed]],
     Cell[launch, "Input", InitializationCell -> True, CellLabel -> "launch"]};
-  nb = Notebook[cells, CellGrouping -> Manual, WindowSize -> {1500, 900}, WindowTitle -> "SMEFT ADM Explorer"];
+  nb = Notebook[cells, CellGrouping -> Manual, InitializationCellEvaluation -> True, InitializationCellWarning -> False,
+    WindowSize -> {1500, 900}, WindowTitle -> "SMEFT ADM Explorer"];
   Export[nbFile, nb, "NB"];
   If[FileExistsQ[nbFile], Print["Wrote ", nbFile, " (", ToString[NumberForm[FileByteCount[nbFile]/10.^6, {4, 2}]], " MB, embedded data: ", embed, ")"]];
   nbFile];
+
 MakeExplorerNotebook::nodata = "Data file `1` not found; run BuildADMData first.";
 
 (* @@INSERT@@ *)
