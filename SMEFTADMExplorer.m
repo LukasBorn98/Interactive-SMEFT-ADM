@@ -976,7 +976,7 @@ renderGraphics[data_Association, graph_Association, layoutName_String, OptionsPa
   ahSize = Clip[13./(2 R z), {0.008, 0.03}];
   paths = Association[Table[i -> z rt["Paths"][i], {i, Length[edges]}]];
   (* draw the long, green edges first so that the red ones stay on top *)
-  edgePrims = Table[
+  edgePrims = With[{onEdge = onEdge}, Table[
     With[{e = edges[[i]], pts = paths[i]},
      With[{col = If[e["Color"] === "Red", $edgeRed, $edgeGreen], dash = If[e["Color"] === "Green", AbsoluteDashing[{7, 4}], Dashing[None]],
        key = {e["From"], e["To"], e["Hop"]}},
@@ -986,9 +986,9 @@ renderGraphics[data_Association, graph_Association, layoutName_String, OptionsPa
          {{col, AbsoluteThickness[th], dash, Arrowheads[{{ahSize, 1}}], Arrow[Line[pts]]}, {White, Opacity[0.01], AbsoluteThickness[11], Line[pts]}},
          {{Darker[col, 0.25], AbsoluteThickness[th + 2.2], dash, Arrowheads[{{ahSize 1.25, 1}}], Arrow[Line[pts]]}, {White, Opacity[0.01], AbsoluteThickness[11], Line[pts]}}],
         edgeTooltip[data, e]],
-       {"MouseClicked" :> onEdge[key]}]]], {i, Length[edges]}];
+       {"MouseClicked" :> onEdge[key]}]]], {i, Length[edges]}]];
   edgePrims = edgePrims[[Ordering[If[#["Color"] === "Green", 0, 1] & /@ edges, All, Less]]];
-  nodePrims = Table[
+  nodePrims = With[{onNode = onNode}, Table[
     With[{op = op0, p = z pos[op0], sz = z sizes[op0]},
      With[{isC = (op === center), fill = $classColors[data["OperatorInfo", op, "Class"]], isNew = MemberQ[newEnd, op],
        fsz = If[op === center, 17., 13.] z},
@@ -1005,7 +1005,7 @@ renderGraphics[data_Association, graph_Association, layoutName_String, OptionsPa
           {halo, EdgeForm[{AbsoluteThickness[If[isC, 2.4, 1]], If[isC, Black, GrayLevel[0.35]]}], FaceForm[fill], rect, lab, selfTxt},
           {halo, EdgeForm[{AbsoluteThickness[2.2], RGBColor["#1565C0"]}], FaceForm[Lighter[fill, 0.25]], rect, lab, selfTxt}],
          nodeTooltip[data, graph, op]],
-        {"MouseClicked" :> onNode[op]}]]]], {op0, graph["Vertices"]}];
+        {"MouseClicked" :> onNode[op]}]]]], {op0, graph["Vertices"]}]];
   <|"Primitives" -> {edgePrims, nodePrims}, "PlotRange" -> R z {{-1, 1}, {-1, 1}}, "ImageSize" -> 2 R z, "Zoom" -> z,
     "Paths" -> paths, "Positions" -> Association[# -> z pos[#] & /@ Keys[pos]], "Violations" -> rt["Violations"], "Radius" -> R|>];
 

@@ -140,6 +140,25 @@ g = ExplorerGraphData[d, big[[1, 2]], "Incoming", "Direct"];
 tPanel = First[AbsoluteTiming[P["entryPanel"][d, g, {big[[1, 1]], big[[1, 2]], 1}, True]]];
 check["largest entry (" <> ToString[big[[2, "NTerms2"]]] <> " terms, full expression) builds in < 1 s", tPanel < 1., Round[tPanel, 0.01]];
 
+(* ---------------------------------------------------------------- click handlers must be self-contained *)
+(* Regression test: handlers that refer to Module-local symbols stop working in the front end (the
+   temporary symbols are removed once only the front end holds the graphic). *)
+Module[{ui, gr, rules, tmpSyms, ok1, ok2, edgeRule, nodeRule, S},
+ ui = SMEFTADMExplorer`SMEFTADMExplorer[d, "cH"];
+ ui[[1]];
+ gr = ReleaseHold[First[Select[Cases[ui, HoldPattern[Dynamic[a_, ___]] :> Hold[a], Infinity], MatchQ[#, Hold[_Module]] &]]];
+ rules = Cases[gr, HoldPattern[RuleDelayed["MouseClicked", rhs_]] :> Hold[rhs], Infinity];
+ tmpSyms = Union[Cases[rules, s_Symbol /; StringMatchQ[SymbolName[s], __ ~~ "$" ~~ DigitCharacter ..] && Context[s] === "SMEFTADMExplorer`Private`", Infinity]];
+ tmpSyms = Select[tmpSyms, ! MemberQ[{"op$", "key$"}, StringReplace[SymbolName[#], DigitCharacter .. ~~ EndOfString -> ""]] &];
+ check["click handlers contain no Module-local temporary symbols (" <> ToString[Length[rules]] <> " handlers)", Length[rules] > 0 && tmpSyms === {}, tmpSyms];
+ S[n_] := Symbol["SMEFTADMExplorer`Private`" <> n];
+ edgeRule = First[Select[rules, ! FreeQ[#, {_String, _String, _Integer}] &]];
+ ReleaseHold[edgeRule];
+ check["clicking an arrow selects its edge", MatchQ[S["selected"], {_String, _String, _Integer}], S["selected"]];
+ nodeRule = First[Select[rules, FreeQ[#, {_String, _String, _Integer}] && ! MatchQ[#, Hold[_["cH"]]] &]];
+ ReleaseHold[nodeRule];
+ check["clicking an operator recenters the graph and records history", S["center"] =!= "cH" && S["history"] === {"cH"} && S["selected"] === None, S["center"]]];
+
 (* ---------------------------------------------------------------- packaging *)
 dd = FileNameJoin[{tmp, "ADMData.wxf"}]; CopyFile[dataFile, dd];
 nbEmb = SMEFTADMExplorer`MakeExplorerNotebook[FileNameJoin[{tmp, "emb.nb"}], "EmbedData" -> True, "DataFile" -> dd];

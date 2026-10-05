@@ -19,18 +19,18 @@ WindowFrame->Normal*)
 
 (* Beginning of Notebook Content *)
 Notebook[{
-Cell["SMEFT ADM Explorer", "Title",ExpressionUUID->"fca311f3-ff7c-46f3-8b2d-9cf84ba80f1d"],
+Cell["SMEFT ADM Explorer", "Title",ExpressionUUID->"911693f8-6c5f-4ff5-9190-4ba1230d0f45"],
 
 Cell["\<\
 Interactive graph of the one- and two-loop anomalous dimension matrix of the \
 dimension-six SMEFT (Mainz basis). Evaluate the two input cells below (or \
 accept the automatic evaluation of the initialization cells). Click an arrow \
 for its entry, click an operator to recenter the graph.\
-\>", "Text",ExpressionUUID->"81101af2-7724-44d1-867b-4f21d37f135c"],
+\>", "Text",ExpressionUUID->"adde505b-f337-4249-8991-b9b714ad97a5"],
 
 Cell[CellGroupData[{
 
-Cell["Loader (package source and data)", "Section",ExpressionUUID->"36d8f92a-7e51-4376-a26d-c42c6a5079d7"],
+Cell["Loader (package source and data)", "Section",ExpressionUUID->"bff53a60-30b1-4bee-9d34-ead95baf7470"],
 
 Cell["\<\
 (* loads SMEFTADMExplorer.m and ADMData.wxf from the folder of this notebook *)
@@ -40,7 +40,7 @@ SMEFTADMExplorer`LoadADMData[FileNameJoin[{NotebookDirectory[], \"ADMData.wxf\
 \"}]];\
 \>", "Input",
  InitializationCell->True,
- CellLabel->"load",ExpressionUUID->"d7fe2889-2689-4913-a0fa-6586157a7447"]
+ CellLabel->"load",ExpressionUUID->"cebb199f-7520-4f6d-990f-8fdd33b91947"]
 }, Closed]],
 
 Cell["\<\
@@ -48,7 +48,7 @@ SMEFTADMExplorer`SMEFTADMExplorer[SMEFTADMExplorer`Private`$notebookData, \
 \"cH\"]\
 \>", "Input",
  InitializationCell->True,
- CellLabel->"launch",ExpressionUUID->"4fad1bca-61f3-4e5e-acc7-0a99b8c4dfb8"]
+ CellLabel->"launch",ExpressionUUID->"8033079f-cd47-4da4-aaf7-255b5cc194fd"]
 },
 InitializationCellEvaluation->True,
 InitializationCellWarning->False,
@@ -59,7 +59,7 @@ FrontEndVersion->"14.2 for Linux x86 (64-bit) (March 16, 2025)",
 StyleDefinitions->FrontEnd`FileName[{$RootDirectory, "home", "lukas", 
    ".Wolfram", "FrontEnd", "Stylesheets"}, "CustomDarkish.nb", 
   CharacterEncoding -> "UTF-8"],
-ExpressionUUID->"a99a551b-6810-4c2a-bc68-5cd3744fbb5e"
+ExpressionUUID->"91337a43-7f6c-4d2d-b3f3-98d3aa10f32d"
 ]
 (* End of Notebook Content *)
 
@@ -72,14 +72,14 @@ CellTagsIndex->{}
 *)
 (*NotebookFileOutline
 Notebook[{
-Cell[586, 21, 90, 0, 70, "Title",ExpressionUUID->"fca311f3-ff7c-46f3-8b2d-9cf84ba80f1d"],
-Cell[679, 23, 368, 5, 70, "Text",ExpressionUUID->"81101af2-7724-44d1-867b-4f21d37f135c"],
+Cell[586, 21, 90, 0, 70, "Title",ExpressionUUID->"911693f8-6c5f-4ff5-9190-4ba1230d0f45"],
+Cell[679, 23, 368, 5, 70, "Text",ExpressionUUID->"adde505b-f337-4249-8991-b9b714ad97a5"],
 Cell[CellGroupData[{
-Cell[1072, 32, 106, 0, 70, "Section",ExpressionUUID->"36d8f92a-7e51-4376-a26d-c42c6a5079d7"],
-Cell[1181, 34, 401, 8, 70, "Input",ExpressionUUID->"d7fe2889-2689-4913-a0fa-6586157a7447",
+Cell[1072, 32, 106, 0, 70, "Section",ExpressionUUID->"bff53a60-30b1-4bee-9d34-ead95baf7470"],
+Cell[1181, 34, 401, 8, 70, "Input",ExpressionUUID->"cebb199f-7520-4f6d-990f-8fdd33b91947",
  InitializationCell->True]
 }, Closed]],
-Cell[1597, 45, 212, 5, 70, "Input",ExpressionUUID->"4fad1bca-61f3-4e5e-acc7-0a99b8c4dfb8",
+Cell[1597, 45, 212, 5, 70, "Input",ExpressionUUID->"8033079f-cd47-4da4-aaf7-255b5cc194fd",
  InitializationCell->True]
 }
 ]
