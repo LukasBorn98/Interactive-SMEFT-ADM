@@ -1,5 +1,5 @@
 #!/usr/bin/env wolframscript
-(* Rebuilds everything: cached data, the stand-alone notebooks and the PNG snapshots.
+(* Rebuilds everything: cached data, the notebook and the PNG snapshots.
    Run from the repository root:   wolframscript -file make_all.wls *)
 root = DirectoryName[$InputFileName];
 If[root === "", root = Directory[]];
@@ -8,9 +8,8 @@ Get["SMEFTADMExplorer.m"];
 
 data = BuildADMData["Input files/SMEFT_beta_functions.m", "ADMData.wxf"];
 
-(* stand-alone notebook (package source and data embedded) and a small one that loads both files from its folder *)
-MakeExplorerNotebook["SMEFT_ADM_Explorer.nb", "EmbedData" -> True, "StartOperator" -> "cH"];
-MakeExplorerNotebook["SMEFT_ADM_Explorer_linked.nb", "EmbedData" -> False, "StartOperator" -> "cH"];
+(* notebook that loads SMEFTADMExplorer.m and ADMData.wxf from its own folder *)
+MakeExplorerNotebook["SMEFT_ADM_Explorer.nb", "EmbedData" -> False, "StartOperator" -> "cH"];
 
 (* snapshots for the README *)
 If[! DirectoryQ["snapshots"], CreateDirectory["snapshots"]];
