@@ -70,6 +70,25 @@ check["colouring agrees with the stored L1/L2 flags (red = one-loop, green = two
 check["1-loop mode never shows a green edge", oneLoopGreen === 0];
 check["highlighted chain endpoints are absent among the direct one-loop neighbours", newOK];
 
+(* chain mode is a tree: every second-leg operator is a separate copy attached to exactly one intermediate operator *)
+treeOK = True; nLeaves = 0; maxLeaves = 0;
+Do[
+ Do[
+  Module[{g = ExplorerGraphData[d, op, dir, "OneLoopSquared"], h2, leafEnd, leafIDs, firstIDs},
+   h2 = Select[g["Edges"], #["Hop"] === 2 &];
+   leafEnd = If[dir === "Outgoing", #["ToID"], #["FromID"]] & /@ h2;
+   leafIDs = Select[g["Vertices"], g["Depth"][#] === 2 &];
+   firstIDs = Select[g["Vertices"], g["Depth"][#] === 1 &];
+   nLeaves += Length[leafIDs]; maxLeaves = Max[maxLeaves, Length[leafIDs]];
+   treeOK = treeOK && g["Tree"] === True
+     && Length[g["Edges"]] === Length[g["Vertices"]] - 1                      (* connected acyclic graph: a tree *)
+     && Sort[leafEnd] === Sort[leafIDs]                                       (* one edge per copy, no shared copies *)
+     && AllTrue[h2, g["Parent"][If[dir === "Outgoing", #["ToID"], #["FromID"]]] === If[dir === "Outgoing", #["From"], #["To"]] &]
+     && AllTrue[leafIDs, g["NodeOp"][#] === First[StringSplit[#, "@"]] &]
+     && Length[Select[g["Edges"], #["Hop"] === 1 &]] === Length[firstIDs]],
+  {dir, {"Outgoing", "Incoming"}}], {op, ops}];
+check["chain graphs are trees with one copy per (intermediate, endpoint) pair (max " <> ToString[maxLeaves] <> " copies)", treeOK];
+
 (* ---------------------------------------------------------------- layouts: no collisions, no overlaps, timing *)
 overlaps[cl_] := Module[{pos = cl["Layout"]["Pos"], sz = cl["Routing"]["Sizes"], o = Keys[cl["Layout"]["Pos"]], c = 0},
   Do[If[i < j, With[{a = pos[o[[i]]], b = pos[o[[j]]], sa = sz[o[[i]]], sb = sz[o[[j]]]},

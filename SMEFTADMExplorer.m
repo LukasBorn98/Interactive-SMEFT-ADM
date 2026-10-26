@@ -557,9 +557,13 @@ ExplorerGraphData[data_Association, center0_String, direction_String, mode_Strin
     Append[res, "Self" -> data["SelfRunning", center]], Append[res, "Self" -> None]]], "badop"];
 
 computeGraph[data_, prep_, center_, dir_, mode_, excl_, hidden_] := Module[
-  {outgoing = (dir === "Outgoing"), keepQ, hop, farEnd, first, second = {}, A, B, newEnd = {}, edgeList, mkEdge, verts, depth, edges, classPos = prep["ClassPos"], opPos = prep["OpPos"], cls = prep["Class"]},
+  {outgoing = (dir === "Outgoing"), keepQ, hop, farEnd, nearEnd, first, second = {}, A, B, newEnd = {}, mkEdge, verts, depth, edges, classPos = prep["ClassPos"], opPos = prep["OpPos"], cls = prep["Class"],
+   tree = (mode === "OneLoopSquared"), nodeOp, parentOf = <||>, copies = <||>, sorter, leafID},
   keepQ[op_] := op === center || ! MemberQ[hidden, cls[op]];
   farEnd[e_] := If[outgoing, e[[2]], e[[1]]];
+  nearEnd[e_] := If[outgoing, e[[1]], e[[2]]];
+  sorter[op_] := {classPos[cls[op]], opPos[op]};
+  leafID[op_, parent_] := op <> "@" <> parent;
   hop[op_, which_] := Select[
     If[outgoing, {op, #} & /@ prep["Out" <> which, op], {#, op} & /@ prep["In" <> which, op]], keepQ[farEnd[#]] &];
   Switch[mode,
@@ -572,19 +576,30 @@ computeGraph[data_, prep_, center_, dir_, mode_, excl_, hidden_] := Module[
    If[excl, second = DeleteCases[second, e_ /; farEnd[e] === center]];
    B = DeleteDuplicates[farEnd /@ second];
    newEnd = Complement[B, A, {center}];
-   newEnd = SortBy[newEnd, {classPos[cls[#]], opPos[#]} &],
+   newEnd = SortBy[newEnd, sorter],
    _, Message[ExplorerGraphData::mode, mode]; Throw[$Failed, "badop"]];
+  (* every edge carries the IDs of its end nodes. In the chain mode (a tree) the operators of the second
+     leg are copies, one per intermediate operator: the ID of such a copy is "op@intermediate". *)
   mkEdge[{f_, t_}, hopNo_] := With[{ed = data["Edges", {f, t}]},
     <|"From" -> f, "To" -> t, "L1" -> ed["L1"], "L2" -> ed["L2"], "Hop" -> hopNo,
+     "FromID" -> If[tree && hopNo === 2 && ! outgoing, leafID[f, t], f], "ToID" -> If[tree && hopNo === 2 && outgoing, leafID[t, f], t],
      "Color" -> If[mode === "Direct", If[ed["L1"], "Red", "Green"], "Red"]|>];
-  edges = DeleteDuplicatesBy[Join[mkEdge[#, 1] & /@ first, mkEdge[#, 2] & /@ second], {#["From"], #["To"]} &];
+  edges = DeleteDuplicatesBy[Join[mkEdge[#, 1] & /@ first, mkEdge[#, 2] & /@ second], {#["FromID"], #["ToID"]} &];
   A = DeleteDuplicates[farEnd /@ first];
   depth = Association[center -> 0];
-  Scan[(depth[#] = 1) &, A];
-  Scan[If[! KeyExistsQ[depth, #], depth[#] = 2] &, DeleteDuplicates[Flatten[{#["From"], #["To"]} & /@ edges]]];
-  verts = SortBy[Keys[depth], {depth[#], classPos[cls[#]], opPos[#]} &];
-  <|"Center" -> center, "Direction" -> dir, "Mode" -> mode, "Vertices" -> verts, "Depth" -> depth,
-   "Edges" -> SortBy[edges, {#["Hop"], classPos[cls[farEnd[#]]], opPos[farEnd[#]], opPos[#["From"]]} &],
+  If[tree,
+   Scan[(depth[#] = 1) &, A];
+   Scan[(depth[#["FromID"]] = If[outgoing, 1, 2]; depth[#["ToID"]] = If[outgoing, 2, 1]) &, Select[edges, #["Hop"] === 2 &]];
+   Scan[(parentOf[If[outgoing, #["ToID"], #["FromID"]]] = nearEnd[{#["From"], #["To"]}]) &, Select[edges, #["Hop"] === 2 &]];
+   copies = Association[Map[# -> Sort[Cases[Normal[parentOf], (id_ -> par_) /; StringStartsQ[id, # <> "@"] :> par]] &, DeleteDuplicates[farEnd[{#["From"], #["To"]}] & /@ Select[edges, #["Hop"] === 2 &]]]];
+   nodeOp = Association[# -> First[StringSplit[#, "@"]] & /@ Keys[depth]];
+   verts = SortBy[Keys[depth], {depth[#], If[depth[#] === 2, sorter[parentOf[#]], {0, 0}], sorter[nodeOp[#]]} &],
+   Scan[(depth[#] = 1) &, A];
+   Scan[If[! KeyExistsQ[depth, #], depth[#] = 2] &, DeleteDuplicates[Flatten[{#["From"], #["To"]} & /@ edges]]];
+   nodeOp = Association[# -> # & /@ Keys[depth]];
+   verts = SortBy[Keys[depth], {depth[#], classPos[cls[#]], opPos[#]} &]];
+  <|"Center" -> center, "Direction" -> dir, "Mode" -> mode, "Vertices" -> verts, "Depth" -> depth, "Tree" -> tree, "NodeOp" -> nodeOp, "Parent" -> parentOf, "Copies" -> copies,
+   "Edges" -> SortBy[edges, {#["Hop"], classPos[cls[farEnd[{#["From"], #["To"]}]]], opPos[farEnd[{#["From"], #["To"]}]], opPos[#["From"]]} &],
    "NewEndpoints" -> newEnd, "NRed" -> Count[edges, e_ /; e["Color"] === "Red"], "NGreen" -> Count[edges, e_ /; e["Color"] === "Green"]|>];
 ExplorerGraphData::mode = "Unknown mode `1`.";
 
@@ -647,6 +662,69 @@ radialLayout[graph_Association, prep_Association] := Module[
      With[{op = allRings[[k, j]], th = Pi/2 - 2 Pi (j - 0.5)/n - off},
       pos[op] = radii[[k]] {Cos[th], Sin[th]}; ringOf[op] = k; angleOf[op] = Mod[th, 2 Pi]], {j, n}]], {k, nRings}];
   <|"Pos" -> pos, "RingOf" -> ringOf, "AngleOf" -> angleOf, "Radii" -> radii, "RingNodes" -> allRings|>];
+
+(* --- tree layout for the chain mode ("1-loop squared") ---
+   The centre sits in the middle, the intermediate operators (first leg) on an inner ring, and the operators of
+   the second leg are copies, one set per intermediate operator, on one outer circle. Every intermediate operator
+   owns an angular slot of that circle; the circle radius is the smallest one for which all slots fit (a chip needs
+   less room along the circle where the circle runs vertically than where it runs horizontally, which is taken into
+   account). Arrows of different intermediate operators stay inside their own slots and never meet. *)
+$leafSize = {52., 23.};
+$leafGap = 8.;
+
+(* centre-to-centre distance two neighbouring leaf chips need along a circle at polar angle th *)
+leafPitch[th_] := Min[($leafSize[[1]] + $leafGap)/Max[Abs[Sin[th]], 10.^-6], ($leafSize[[2]] + $leafGap)/Max[Abs[Cos[th]], 10.^-6]] 1.03;
+
+(* angles of k chips placed clockwise from angle th0 (the first chip half a pitch inside the slot) *)
+leafAngles[th0_, k_Integer, R_] := Module[{th = th0, out = {}, st},
+  Do[st = leafPitch[th]/R; st = leafPitch[th - st/2]/R; AppendTo[out, th - st/2]; th -= st, {k}];
+  {out, th}];
+
+treeLayout[graph_Association, prep_Association] := Module[
+  {center = graph["Center"], verts = graph["Vertices"], depth = graph["Depth"], parentOf = graph["Parent"], nodeOp = graph["NodeOp"],
+   classPos = prep["ClassPos"], cls = prep["Class"], opPos = prep["OpPos"], parents, kids, ks, nP, sorter, r1min, ringR1, place, lo, hi, R, fin, used,
+   pos = <||>, ringOf = <||>, angleOf = <||>, sepE = 12.},
+  sorter[id_] := {classPos[cls[nodeOp[id]]], opPos[nodeOp[id]]};
+  parents = SortBy[Select[verts, depth[#] === 1 &], sorter];
+  nP = Length[parents];
+  kids = Association[Table[With[{a = a}, a -> SortBy[Select[verts, depth[#] === 2 && parentOf[#] === a &], sorter]], {a, parents}]];
+  ks = Values[Length /@ kids];
+  pos[center] = {0., 0.};
+  If[nP === 0, Return[<|"Pos" -> pos, "RingOf" -> <||>, "AngleOf" -> <||>, "Radii" -> {}, "RingNodes" -> {}|>]];
+  r1min = Max[135., nP 76./(2 Pi) 1.02];
+  ringR1[Rl_] := Clip[0.4 Rl, {r1min, Max[r1min, Rl - 110.]}];
+  (* clockwise sequence of slots from angle th0: the slot of parent j holds its k_j chips, at least the room of the parent itself *)
+  place[Rl_, th0_, extra_] := Module[{th = th0, out = {}},
+    Do[
+     With[{k = ks[[j]]},
+      With[{ang = If[k === 0, {{}, th}, leafAngles[th, k, Rl]]},
+       With[{wc = th - ang[[2]], w = Max[th - ang[[2]] + sepE/Rl, 76./ringR1[Rl]] + extra},
+        With[{c0 = th - w/2 + wc/2},
+         With[{angs = If[k === 0, {}, leafAngles[c0, k, Rl][[1]]]},
+          AppendTo[out, <|"Phi" -> th - w/2, "Angles" -> angs, "Width" -> w|>]; th -= w]]]]], {j, nP}];
+    {out, th}];
+  lo = r1min + 110.; hi = 60000.;
+  If[Pi/2 - place[lo, Pi/2, 0.][[2]] <= 2 Pi, R = lo,
+   Do[With[{mid = (lo + hi)/2}, If[Pi/2 - place[mid, Pi/2, 0.][[2]] > 2 Pi, lo = mid, hi = mid]], {32}];
+   R = hi];
+  used = Pi/2 - place[R, Pi/2, 0.][[2]];
+  (* spread the unused angle as extra gaps; the orientation-dependent pitches change a little when the start moves,
+     so take the first option that still closes the circle without overlap *)
+  fin = None;
+  Scan[Function[opt,
+    If[fin === None,
+     With[{ex = Min[opt[[2]] (2 Pi - used)/nP, 0.25], u2 = used + nP Min[opt[[2]] (2 Pi - used)/nP, 0.25]},
+      With[{st = If[opt[[1]] && u2 < 2 Pi - 0.02, Pi/2 + u2/2, Pi/2]},
+       With[{r = place[R, st, ex]}, If[st - r[[2]] <= 2 Pi - 10.^-6, fin = r[[1]]]]]]]],
+   {{True, 0.9}, {True, 0.5}, {False, 0.5}, {False, 0.}}];
+  If[fin === None, fin = place[R, Pi/2, 0.][[1]]];
+  Do[
+   Module[{f = fin[[j]], r1 = ringR1[R]},
+    pos[parents[[j]]] = r1 {Cos[f["Phi"]], Sin[f["Phi"]]};
+    Do[pos[kids[parents[[j]]][[i]]] = R {Cos[f["Angles"][[i]]], Sin[f["Angles"][[i]]]}, {i, ks[[j]]}]], {j, nP}];
+  Do[ringOf[id] = Boole[depth[id] === 2] + 1; angleOf[id] = Mod[ArcTan @@ pos[id], 2 Pi], {id, Select[verts, # =!= center &]}];
+  <|"Pos" -> pos, "RingOf" -> ringOf, "AngleOf" -> angleOf, "Radii" -> {ringR1[R], R},
+   "RingNodes" -> {parents, Select[verts, depth[#] === 2 &]}|>];
 
 (* --- Fruchterman-Reingold ("Spring") layout, deterministic: starts from the radial layout --- *)
 springLayout[graph_Association, prep_Association] := Module[
@@ -770,13 +848,14 @@ segBoxHits[P_, Q_, bm_] := Module[{px = P[[All, 1]], py = P[[All, 2]], dx, dy, t
 (* Route all edges of a graph. Returns the paths (list of points per edge index) and the number of
    edges that still touch a node box (should be 0). *)
 routeEdges[graph_Association, layout_Association] := Module[
-  {pos = layout["Pos"], sizes, boxesM, boxesPlain, center = graph["Center"], edges = graph["Edges"], paths = <||>, violations = 0,
+  {pos = layout["Pos"], sizes, boxesM, boxesPlain, center = graph["Center"],
+   edges = If[TrueQ[graph["Tree"]], Map[Join[#, <|"From" -> #["FromID"], "To" -> #["ToID"]|>] &, graph["Edges"]], graph["Edges"]], paths = <||>, violations = 0,
    opsList, opIdx, bmMat, evalHits, edgeSet, starIdx, otherIdx, ringOf = layout["RingOf"], angleOf = layout["AngleOf"], radii = layout["Radii"],
    ringNodes = layout["RingNodes"], onesVec, maskExcl, generic, vgData, buildVG, visVec, dijk, routeVG, shiftPath, corr, gatePts, routeStar, nodeOf, starRes = <||>, members = <||>, offsetsOf = <||>, centerPos},
   opsList = Keys[pos];
   opIdx = AssociationThread[opsList, Range[Length[opsList]]];
-  sizes = Association[# -> If[# === center, $centerSize, $nodeSize] & /@ opsList];
-  boxesM = Association[# -> boxOf[pos[#], sizes[#], $nodeMargin] & /@ opsList];
+  sizes = Association[# -> Which[# === center, $centerSize, TrueQ[graph["Tree"]] && graph["Depth"][#] === 2, $leafSize, True, $nodeSize] & /@ opsList];
+  boxesM = Association[# -> boxOf[pos[#], sizes[#], If[TrueQ[graph["Tree"]] && sizes[#] === $leafSize, 3., $nodeMargin]] & /@ opsList];
   boxesPlain = Association[# -> boxOf[pos[#], sizes[#], 1.5] & /@ opsList];
   bmMat = Developer`ToPackedArray[N[Values[boxesM]]];
   centerPos = pos[center];
@@ -815,8 +894,9 @@ routeEdges[graph_Association, layout_Association] := Module[
   generic[u_, v_, pair_] := Catch[Module[{a = pos[u], b = pos[v], pts, sm, ks, best, hits},
     If[! cfSegBlocked[a[[1]], a[[2]], b[[1]], b[[2]], bmMat, maskExcl[{u, v}]],
      pts = {a, b},
-     If[vgData === None, $rtDebug["buildVG"] = First[AbsoluteTiming[vgData = buildVG[]]]];
-     pts = routeVG[u, v];
+     If[TrueQ[graph["Tree"]], pts = None,
+      If[vgData === None, $rtDebug["buildVG"] = First[AbsoluteTiming[vgData = buildVG[]]]];
+      pts = routeVG[u, v]];
      If[pts === None,
       ks = {0.1, -0.1, 0.2, -0.2, 0.32, -0.32, 0.5, -0.5, 0.75, -0.75}; best = {Infinity, {a, b}};
       Do[With[{pp = bezierPts[a, b, k, 16]}, hits = evalHits[pp, {u, v}]; If[hits < best[[1]], best = {hits, pp}]], {k, ks}];
@@ -881,9 +961,26 @@ routeEdges[graph_Association, layout_Association] := Module[
   Do[If[edges[[i, "To"]] === center, paths[i] = Reverse[paths[i]]], {i, starIdx}];
   Do[
    With[{e = edges[[i]]}, paths[i] = generic[e["From"], e["To"], KeyExistsQ[edgeSet, {e["To"], e["From"]}]]], {i, otherIdx}];
-  violations = Count[Range[Length[edges]], i_ /; evalHits[paths[i], {edges[[i, "From"]], edges[[i, "To"]]}] > 0];
+  (* chain tree: the arrows of one intermediate operator end (or start) at distinct points along its box, so that
+     many arrows do not pile up on one spot *)
+  If[TrueQ[graph["Tree"]],
+   Module[{grp = GroupBy[Select[Range[Length[edges]], edges[[#, "Hop"]] === 2 &], If[graph["Direction"] === "Outgoing", edges[[#, "From"]], edges[[#, "To"]]] &]},
+    KeyValueMap[
+     Function[{par, ids},
+      Module[{k = Length[ids], phi = angleOf[par], tvec, smax, srt, step, outgoing = (graph["Direction"] === "Outgoing"), P0 = pos[par]},
+       tvec = {-Sin[phi], Cos[phi]};
+       smax = 0.8 Min[$nodeSize[[1]]/Max[Abs[tvec[[1]]], 10.^-6], $nodeSize[[2]]/Max[Abs[tvec[[2]]], 10.^-6]]/2;
+       step = If[k > 1, Min[2 smax/(k - 1), 9.], 0.];
+       srt = SortBy[ids, -angleOf[If[outgoing, edges[[#, "To"]], edges[[#, "From"]]]] &];
+       Do[
+        With[{i = srt[[q]], off = (q - (k + 1)/2.) step tvec},
+         If[Length[paths[i]] === 2, paths[i] = If[outgoing, {P0 + off, paths[i][[2]]}, {paths[i][[1]], P0 + off}]]], {q, k}]]],
+     grp]]];
+  If[! TrueQ[graph["Tree"]], violations = Count[Range[Length[edges]], i_ /; evalHits[paths[i], {edges[[i, "From"]], edges[[i, "To"]]}] > 0]];
   (* clip at the node boundaries *)
   Do[With[{e = edges[[i]]}, paths[i] = clipPath[paths[i], boxesPlain[e["From"]], boxesPlain[e["To"]]]], {i, Range[Length[edges]]}];
+  (* chain tree: the arrows end at the centres of tiny chips, so only the drawn (clipped) part is checked *)
+  If[TrueQ[graph["Tree"]], violations = Count[Range[Length[edges]], i_ /; evalHits[paths[i], {edges[[i, "From"]], edges[[i, "To"]]}] > 0]];
   <|"Paths" -> paths, "Violations" -> violations, "Sizes" -> sizes,
    "ViolatingEdges" -> Select[Range[Length[edges]], evalHits[paths[#], {edges[[#, "From"]], edges[[#, "To"]]}] > 0 &]|>];
 
@@ -894,9 +991,9 @@ layoutRadius[layout_Association, routing_Association] := Max[Join[
 $rtDebug = <||>;
 $layoutCache = <||>;
 computeLayout[data_Association, graph_Association, layoutName_String] := Module[{prep = getPrep[data], key, lay, rt},
-  key = {data["Meta", "SourceHash"], graph["Center"], graph["Direction"], graph["Mode"], Hash[graph["Vertices"]], Hash[graph["Edges"]], layoutName};
+  key = {data["Meta", "SourceHash"], graph["Center"], graph["Direction"], graph["Mode"], Hash[graph["Vertices"]], Hash[graph["Edges"]], If[TrueQ[graph["Tree"]], "Tree", layoutName]};
   If[! KeyExistsQ[$layoutCache, key],
-   lay = If[layoutName === "Spring", springLayout[graph, prep], radialLayout[graph, prep]];
+   lay = Which[TrueQ[graph["Tree"]], treeLayout[graph, prep], layoutName === "Spring", springLayout[graph, prep], True, radialLayout[graph, prep]];
    rt = routeEdges[graph, lay];
    $layoutCache[key] = <|"Layout" -> lay, "Routing" -> rt, "Radius" -> layoutRadius[lay, rt]|>];
   $layoutCache[key]];
@@ -950,27 +1047,33 @@ edgeTooltip[data_Association, e_Association] := Module[{f = e["From"], t = e["To
      {Style["click for the full entry", Gray, 10, FontFamily -> $uiFont]}], Left, 0.35],
    FrameStyle -> GrayLevel[0.7], Background -> White, FrameMargins -> 6]];
 
-nodeTooltip[data_Association, graph_Association, op_String] := Framed[Column[{
+nodeTooltip[data_Association, graph_Association, id_String] := With[{op = graph["NodeOp"][id]}, Framed[Column[{
      opLabel[data, op, 15],
      Style[classDisplayName[data, data["OperatorInfo", op, "Class"]] <> " operator   (" <> op <> ")", 11, FontFamily -> $uiFont],
      If[MemberQ[graph["NewEndpoints"], op], Style[newOrderText[], 11, FontFamily -> $uiFont, FontColor -> $haloColor], Nothing],
-     Style[If[op === graph["Center"], "current center", "click to recenter on this operator"], Gray, 10, FontFamily -> $uiFont]}, Left, 0.3],
-   FrameStyle -> GrayLevel[0.7], Background -> White, FrameMargins -> 6];
+     If[TrueQ[graph["Tree"]] && id =!= graph["Center"] && graph["Depth"][id] === 2,
+      Style[Row[{If[graph["Direction"] === "Outgoing", "reached via ", "reaching the centre via "], opLabel[data, graph["Parent"][id], 12],
+         With[{others = DeleteCases[graph["Copies"][op], graph["Parent"][id]]},
+          If[others === {}, "  (only this chain)", Row[{"  (this operator also appears under ", Length[others], " other intermediate operator", If[Length[others] > 1, "s", ""], ")"}]]]}], 11, FontFamily -> $uiFont],
+      Nothing],
+     Style[If[id === graph["Center"], "current center", "click to recenter on this operator"], Gray, 10, FontFamily -> $uiFont]}, Left, 0.3],
+   FrameStyle -> GrayLevel[0.7], Background -> White, FrameMargins -> 6]];
 
-Options[renderGraphics] = {"EdgeThickness" -> 1.8, "CanvasSize" -> 880, "OnNodeClick" -> (None &), "OnEdgeClick" -> (None &), "ShowSelf" -> False};
+Options[renderGraphics] = {"EdgeThickness" -> 1.8, "CanvasSize" -> 880, "Zoom" -> 1., "OnNodeClick" -> (None &), "OnEdgeClick" -> (None &), "ShowSelf" -> False};
 
 (* Builds the primitives of the explorer graph. Returns an Association with everything the UI needs. *)
 renderGraphics[data_Association, graph_Association, layoutName_String, OptionsPattern[]] := Module[
-  {cl, lay, rt, R, z, canvas, pos, sizes, cls, newEnd, th, ahSize, onNode, onEdge, edges, edgePrims, nodePrims, badge, center, selfRec, paths, fs},
+  {cl, lay, rt, R, z, canvas, pos, sizes, cls, newEnd, nodeOp, th, ahSize, onNode, onEdge, edges, edgePrims, nodePrims, badge, center, selfRec, paths, fs},
   cl = computeLayout[data, graph, layoutName];
   lay = cl["Layout"]; rt = cl["Routing"];
   canvas = OptionValue["CanvasSize"];
   R = cl["Radius"];
-  z = Min[1.2, canvas/(2 R)];
+  z = OptionValue["Zoom"] If[TrueQ[graph["Tree"]], Max[0.55, Min[1.2, canvas/(2 R)]], Min[1.2, canvas/(2 R)]];
   center = graph["Center"];
   pos = lay["Pos"]; sizes = rt["Sizes"];
   edges = graph["Edges"];
   newEnd = graph["NewEndpoints"];
+  nodeOp = graph["NodeOp"];
   th = OptionValue["EdgeThickness"];
   onNode = OptionValue["OnNodeClick"]; onEdge = OptionValue["OnEdgeClick"];
   ahSize = Clip[13./(2 R z), {0.008, 0.03}];
@@ -979,19 +1082,19 @@ renderGraphics[data_Association, graph_Association, layoutName_String, OptionsPa
   edgePrims = With[{onEdge = onEdge}, Table[
     With[{e = edges[[i]], pts = paths[i]},
      With[{col = If[e["Color"] === "Red", $edgeRed, $edgeGreen], dash = If[e["Color"] === "Green", AbsoluteDashing[{7, 4}], Dashing[None]],
-       key = {e["From"], e["To"], e["Hop"]}},
+       key = {e["From"], e["To"], e["Hop"]}, ahs = If[TrueQ[graph["Tree"]] && e["Hop"] === 2, ahSize 0.6, ahSize]},
       EventHandler[
        Tooltip[
         Mouseover[
-         {{col, AbsoluteThickness[th], dash, Arrowheads[{{ahSize, 1}}], Arrow[Line[pts]]}, {White, Opacity[0.01], AbsoluteThickness[11], Line[pts]}},
-         {{Darker[col, 0.25], AbsoluteThickness[th + 2.2], dash, Arrowheads[{{ahSize 1.25, 1}}], Arrow[Line[pts]]}, {White, Opacity[0.01], AbsoluteThickness[11], Line[pts]}}],
+         {{col, AbsoluteThickness[th], dash, Arrowheads[{{ahs, 1}}], Arrow[Line[pts]]}, {White, Opacity[0.01], AbsoluteThickness[11], Line[pts]}},
+         {{Darker[col, 0.25], AbsoluteThickness[th + 2.2], dash, Arrowheads[{{ahs 1.25, 1}}], Arrow[Line[pts]]}, {White, Opacity[0.01], AbsoluteThickness[11], Line[pts]}}],
         edgeTooltip[data, e]],
        {"MouseClicked" :> onEdge[key]}]]], {i, Length[edges]}]];
   edgePrims = edgePrims[[Ordering[If[#["Color"] === "Green", 0, 1] & /@ edges, All, Less]]];
   nodePrims = With[{onNode = onNode}, Table[
-    With[{op = op0, p = z pos[op0], sz = z sizes[op0]},
-     With[{isC = (op === center), fill = $classColors[data["OperatorInfo", op, "Class"]], isNew = MemberQ[newEnd, op],
-       fsz = If[op === center, 17., 13.] z},
+    With[{id = op0, op = nodeOp[op0], p = z pos[op0], sz = z sizes[op0]},
+     With[{isC = (id === center), fill = $classColors[data["OperatorInfo", op, "Class"]], isNew = MemberQ[newEnd, op],
+       fsz = Which[id === center, 17., sz[[1]] < 55. z, 11.5, True, 13.] z},
       With[{rect = Rectangle[p - sz/2, p + sz/2, RoundingRadius -> 6 z],
         halo = If[isNew, {EdgeForm[{AbsoluteThickness[2.6], $haloColor}], FaceForm[None], Rectangle[p - sz/2 - 4 z, p + sz/2 + 4 z, RoundingRadius -> 9 z],
            EdgeForm[{AbsoluteThickness[1.2], Lighter[$haloColor, 0.55]}], Rectangle[p - sz/2 - 8 z, p + sz/2 + 8 z, RoundingRadius -> 12 z]}, {}],
@@ -1004,7 +1107,7 @@ renderGraphics[data_Association, graph_Association, layoutName_String, OptionsPa
          Mouseover[
           {halo, EdgeForm[{AbsoluteThickness[If[isC, 2.4, 1]], If[isC, Black, GrayLevel[0.35]]}], FaceForm[fill], rect, lab, selfTxt},
           {halo, EdgeForm[{AbsoluteThickness[2.2], RGBColor["#1565C0"]}], FaceForm[Lighter[fill, 0.25]], rect, lab, selfTxt}],
-         nodeTooltip[data, graph, op]],
+         nodeTooltip[data, graph, id]],
         {"MouseClicked" :> onNode[op]}]]]], {op0, graph["Vertices"]}]];
   <|"Primitives" -> {edgePrims, nodePrims}, "PlotRange" -> R z {{-1, 1}, {-1, 1}}, "ImageSize" -> 2 R z, "Zoom" -> z,
     "Paths" -> paths, "Positions" -> Association[# -> z pos[#] & /@ Keys[pos]], "Violations" -> rt["Violations"], "Radius" -> R|>];
@@ -1089,7 +1192,7 @@ entryPanel[data_Association, graph_Association, key_, showFull_] := Module[{legs
     Style[Row[{"\[DownArrow]  second leg of the chain"}], Gray, 12, FontFamily -> $uiFont]], Left, 1.6]];
 
 infoLine[graph_Association] := Style[Row[{
-    "Showing ", Length[graph["Edges"]], " edges between ", Length[graph["Vertices"]], " operators:  ",
+    "Showing ", Length[graph["Edges"]], " edges between ", Length[graph["Vertices"]], If[TrueQ[graph["Tree"]], Row[{" nodes (", Length[DeleteDuplicates[graph["NodeOp"]]], " distinct operators):  "}], " operators:  "],
     Style[graph["NRed"], $edgeRed, Bold], " red (one-loop)",
     If[graph["Mode"] === "Direct", Row[{",  ", Style[graph["NGreen"], $edgeGreen, Bold], " green (two-loop only)"}], ""],
     If[graph["Mode"] === "OneLoopSquared", Row[{",  ", Style[Length[graph["NewEndpoints"]], $haloColor, Bold], " new endpoints"}], ""]}], 12, FontFamily -> $uiFont];
@@ -1129,7 +1232,7 @@ explorerUI[data_Association, start_String] := With[{
         Graphics[{$classColors[cid], EdgeForm[GrayLevel[0.4]], Rectangle[{0, 0}, {1, 0.55}, RoundingRadius -> 0.15]}, ImageSize -> {26, 15}, PlotRange -> {{-0.05, 1.05}, {-0.05, 0.6}}, AspectRatio -> Full],
         Style[classLabel[cr[[1]]], 12, FontFamily -> $uiFont]}, "  "]], {cr, data["Classes"]}]},
   DynamicModule[{center = start, history = {}, direction = "Incoming", mode = "Direct", layoutName = "Radial", showSelf = True,
-    excl = True, shown = Association[# -> True & /@ classIDs], thick = 1.8, selected = None, showFull = False, query = "", browseClass = classIDs[[1]]},
+    excl = True, shown = Association[# -> True & /@ classIDs], thick = 1.8, zoom = 1., selected = None, showFull = False, query = "", browseClass = classIDs[[1]]},
    Grid[{{
       (* ---------------- left column: controls ---------------- *)
       Panel[Column[{
@@ -1156,11 +1259,13 @@ explorerUI[data_Association, start_String] := With[{
          RadioButtonBar[Dynamic[mode, (mode = #; selected = None) &], {"OneLoop" -> "1-loop only", "Direct" -> "1-loop + 2-loop (direct)", "OneLoopSquared" -> "1-loop squared (chains)"}, Appearance -> "Vertical"],
          Style["Layout", Bold, 12, FontFamily -> $uiFont],
          RadioButtonBar[Dynamic[layoutName, (layoutName = #; selected = None) &], {"Radial" -> "Radial (rings)", "Spring" -> "Spring"}],
+         Dynamic[If[mode === "OneLoopSquared", Style["chains always use the tree layout", Gray, 10, FontFamily -> $uiFont], Spacer[0]], TrackedSymbols :> {mode}],
          Delimiter,
          Style["Options", Bold, 12, FontFamily -> $uiFont],
          Row[{Checkbox[Dynamic[showSelf]], "  show self-running badge"}],
          Row[{Checkbox[Dynamic[excl], Enabled -> Dynamic[mode === "OneLoopSquared"]], "  exclude trivial chains"}],
          Row[{"edge thickness  ", Slider[Dynamic[thick], {0.8, 4., 0.2}, ImageSize -> 110]}],
+         Row[{"zoom  ", Slider[Dynamic[zoom], {0.3, 1.5, 0.05}, ImageSize -> 110, ContinuousAction -> False]}],
          Style["Show operator classes", Bold, 12, FontFamily -> $uiFont],
          Column[classRows, Left, 0.3],
          Delimiter,
@@ -1173,13 +1278,17 @@ explorerUI[data_Association, start_String] := With[{
          Module[{graph, r},
           graph = ExplorerGraphData[$explorerData, center, direction, mode, "ShowSelfRunning" -> showSelf, "ExcludeTrivialChains" -> excl,
             "HiddenClasses" -> Keys[Select[shown, ! # &]]];
-          r = renderGraphics[$explorerData, graph, layoutName, "EdgeThickness" -> thick, "ShowSelf" -> showSelf,
+          r = renderGraphics[$explorerData, graph, layoutName, "EdgeThickness" -> thick, "ShowSelf" -> showSelf, "Zoom" -> zoom,
             "OnNodeClick" -> Function[op, If[op =!= center, history = Append[history, center]; center = op; selected = None]],
             "OnEdgeClick" -> Function[key, selected = key]];
-          With[{paths = r["Paths"], es = graph["Edges"]},
-           Graphics[{r["Primitives"], Dynamic[selectedEdgeOverlay[paths, es, selected], TrackedSymbols :> {selected}]},
-            PlotRange -> r["PlotRange"], ImageSize -> r["ImageSize"], PlotRangePadding -> 0, Background -> White, ImagePadding -> 2]]],
-         TrackedSymbols :> {center, direction, mode, layoutName, showSelf, excl, shown, thick}]}, Left, 0.5],
+          With[{paths = r["Paths"], es = graph["Edges"], sz = r["ImageSize"] + 4},
+           (* large graphs (chains) scroll inside a fixed viewport, starting at the centre *)
+           Pane[
+            Graphics[{r["Primitives"], Dynamic[selectedEdgeOverlay[paths, es, selected], TrackedSymbols :> {selected}]},
+             PlotRange -> r["PlotRange"], ImageSize -> r["ImageSize"], PlotRangePadding -> 0, Background -> White, ImagePadding -> 2],
+            {Min[sz, 900], Min[sz, 860]}, Scrollbars -> Automatic, ImageSizeAction -> "Scrollable",
+            ScrollPosition -> {Max[0, (sz - 900)/2], Max[0, (sz - 860)/2]}]]],
+         TrackedSymbols :> {center, direction, mode, layoutName, showSelf, excl, shown, thick, zoom}]}, Left, 0.5],
       (* ---------------- right: side panel ---------------- *)
       Panel[Column[{
          Style["Entry", Bold, 14, FontFamily -> $uiFont],
