@@ -287,6 +287,103 @@ Module[{rules = P["$unverifiedRules"], cnt, flaggedEdges, allowedSrc, g, r, pane
  ov = P["unverifiedOverview"][d];
  check["overview of Table 3 lists all " <> ToString[Length[rules]] <> " rules", Count[ov, s_String /; StringStartsQ[s, "Fig"], Infinity] >= Length[rules]]];
 
+(* ---------------------------------------------------------------- explicit flavour (FlavorADMData.wxf) *)
+flavorFile = FileNameJoin[{root, "FlavorADMData.wxf"}];
+admDir = FileNameJoin[{root, "Input files", "ADM"}];
+fd = SMEFTADMExplorer`LoadFlavorADMData[flavorFile];
+check["flavour data file loads", AssociationQ[fd]];
+If[AssociationQ[fd],
+ SMEFTADMExplorer`Private`$explorerData = d; SMEFTADMExplorer`Private`$flavorData = fd;
+ Module[{rowsOf = fd["RowsOf"], colsOf = fd["ColsOf"], combos = P["$flavorCombos"], fam, famOK, overl = 0, violF = 0, msgsF = 0, nF = 0, clickF},
+  check["flavour: all 59 operators have components (rows " <> ToString[Length[fd["Rows"]]] <> ", columns " <> ToString[Length[fd["Cols"]]] <> ")",
+   Sort[Keys[Select[rowsOf, # =!= {} &]]] === Sort[ops] && Sort[Keys[Select[colsOf, # =!= {} &]]] === Sort[ops]];
+  check["flavour: components per operator: 1 (no index), 9 or 6 (2 indices), 45/81/... (4 indices); C* columns only for complex components",
+   AllTrue[ops, MemberQ[{1, 3, 6, 9, 21, 27, 36, 45, 57, 81, 126, 162}, Length[rowsOf[#]]] &] &&
+    AllTrue[fd["Cols"], ! #["Conj"] || ! FreeQ[fd["Rows"][[All, {"Op", "Idx"}]], <|"Op" -> #["Op"], "Idx" -> #["Idx"]|>] &]];
+  check["flavour: four approximations x two loop orders stored", AllTrue[combos, AssociationQ[fd["Matrices", #]] && Head[fd["Matrices", #, 1]] === SparseArray && Head[fd["Matrices", #, 2]] === SparseArray &]];
+  check["flavour: exact top+gauge entries reproduce the stored top+gauge numbers (build check " <> ToString[fd["Meta", "TopGaugeCheck"]] <> ")", fd["Meta", "TopGaugeCheck"] < 10.^-10];
+  (* the same check here, independently, for 300 random entries *)
+  Module[{ok = True, inp = fd["Meta", "Inputs"]},
+   Do[With[{ks = RandomSample[Keys[fd["TopGaugeExact"][h]], UpTo[150]]},
+     ok = ok && AllTrue[ks, With[{ex = P["flavorExactValue"][fd["TopGaugeExact"][h][#], inp] N[1/(16 Pi^2)^h], num = fd["Matrices", "TopGauge", h][[Sequence @@ #]]},
+          Abs[ex - num] <= 10.^-10 Abs[num]] &]], {h, 1, 2}];
+   check["flavour: exact top+gauge polynomials evaluated at M_t = stored numbers (300 random entries)", ok]];
+  (* every flavoured block belongs to an edge of the family graph (at the reference point; the cut-off can only remove elements) *)
+  fam = Union[Flatten[Table[With[{m = fd["Matrices", c, h]}, {fd["Cols"][[#[[2]], "Op"]], fd["Rows"][[#[[1]], "Op"]], h} & /@ m["NonzeroPositions"]], {c, combos}, {h, 1, 2}], 2]];
+  famOK = AllTrue[fam, If[#[[1]] === #[[2]], d["SelfRunning", #[[1]], "L" <> ToString[#[[3]]]], KeyExistsQ[d["Edges"], #[[1 ;; 2]]] && d["Edges", #[[1 ;; 2]], "L" <> ToString[#[[3]]]]] &];
+  check["flavour: every nonzero flavoured block (all approximations) is an edge (or self-running) of the generic ADM at the same loop order", famOK,
+   Select[fam, ! If[#[[1]] === #[[2]], d["SelfRunning", #[[1]], "L" <> ToString[#[[3]]]], KeyExistsQ[d["Edges"], #[[1 ;; 2]]] && d["Edges", #[[1 ;; 2]], "L" <> ToString[#[[3]]]]] &]];
+  (* focus views: every operator, both directions, K = 40 *)
+  Do[Module[{g = P["flavorFocusGraph"][fd, op, P["defaultFlavorIdx"][fd, op], dir, "FullUp", "Sum", 40, 10.^-14], cl, r},
+     cl = P["computeLayout"][d, g, "Radial"];
+     violF += cl["Routing"]["Violations"]; overl += overlaps[cl];
+     r = Quiet[Check[P["renderGraphics"][d, g, "Radial", "ShowSelf" -> True], $Failed, All::stop], All::stop];
+     nF++; If[r === $Failed || Head[r] =!= Association, msgsF++]], {op, ops}, {dir, {"Outgoing", "Incoming"}}];
+  check["flavour focus views render without messages (" <> ToString[nF] <> " views, 40 partners)", msgsF === 0, msgsF];
+  check["flavour focus views: no arrow touches a foreign node, no node overlaps", violF === 0 && overl === 0, {violF, overl}];
+  (* weighted family graph and panels *)
+  Module[{g = ExplorerGraphData[d, "cuH", "Incoming", "Direct"], gw, pm, panel1, panel2, det},
+   gw = P["weightFamilyEdges"][g, fd, "FullUp", "Sum", 10.^-8];
+   pm = fd["PairMax", "FullUp", "Sum"];
+   check["weighted graph: thickness grows with the largest flavoured element, faded below the threshold",
+    AllTrue[gw["Edges"], KeyExistsQ[#, "Thick"] &] &&
+     With[{es = Select[gw["Edges"], ! #["Faded"] &]}, OrderedQ[SortBy[{#["FlavorMax"][[1]], #["Thick"]} & /@ es, First][[All, 2]]]] &&
+     AllTrue[Select[gw["Edges"], #["Faded"] &], #["FlavorMax"][[1]] < 10.^-8 &]];
+   check["weighted graph: largest element of a block = maximum over the block", With[{e = {"cHG", "cuH"}},
+     pm[e][[1]] == Max[Abs[P["flavorBlockEntries"][fd, "FullUp", "cHG", "cuH"][[All, 5]]]]]];
+   panel1 = P["flavorBlockPanel"][fd, "cHG", "cuH", "FullUp", "Sum", "", False, (Null &), {fd["RowsOf"]["cuH"][[-1]], fd["ColsOf"]["cHG"][[1]]}];
+   panel2 = P["flavorBlockPanel"][fd, "cqu1", "cuH", "FullUp", "Sum", "33", False, (Null &), None];
+   check["flavour block panels build (heat map, ranked table with filter, element detail with exact expression)",
+    ! FreeQ[panel1, "Exact, top Yukawa + gauge approximation"] && FreeQ[{panel1, panel2}, $Failed] && FreeQ[{panel1, panel2}, Delimiter]];
+   (* regression: the selection handler must survive being inlined into the cell handlers (a Function[{r, c}, ..] had its
+      parameters replaced by numbers: "Function::flpar") *)
+   Module[{rec = None, ok = True},
+    Do[Module[{pan = P["flavorBlockPanel"][fd, pr[[1]], pr[[2]], "FullUp", "Sum", "", False, (rec = {#1, #2}) &, None], rl},
+       rl = Cases[pan, HoldPattern[RuleDelayed["MouseClicked", rhs_]] :> Hold[rhs], Infinity];
+       rec = None; ok = ok && rl =!= {} && Quiet[Check[ReleaseHold[First[rl]]; True, False]] && MatchQ[rec, {_Integer, _Integer}]],
+     {pr, {{"cHG", "cuH"}, {"cqu1", "cuH"}}}];
+    check["flavour panels: clicking a heat-map cell / list row selects the element without messages", ok]];
+   det = P["flavorElementDetail"][fd, fd["RowsOf"]["cuH"][[-1]], fd["ColsOf"]["cHG"][[1]], "FullUp"];
+   check["element detail: exact expression of C_HG -> C_uH^33 at one loop is 32 g_s^4 y_t", 
+    P["exactExpr"][fd["TopGaugeExact"][1][{fd["RowsOf"]["cuH"][[-1]], fd["ColsOf"]["cHG"][[1]]}]] === 32 P["flavGS"]^4 P["flavYt"]]];
+  (* clicks in the focus view recenter on the flavoured coefficient *)
+  clickF = Module[{ui = SMEFTADMExplorer`SMEFTADMExplorer[d, "cuH"], S = Symbol["SMEFTADMExplorer`Private`" <> #] &, set, gr, rules, nodeRule},
+    set[n_, v_] := ToExpression["SMEFTADMExplorer`Private`" <> n, InputForm, Function[sym, sym = v, HoldFirst]];
+    ui[[1]]; (* initialise the DynamicModule variables *)
+    set["mode", "Flavour"]; set["center", "cuH"]; set["direction", "Incoming"]; set["history", {}];
+    gr = ReleaseHold[First[Select[Cases[ui, HoldPattern[Dynamic[a_, ___]] :> Hold[a], Infinity], MatchQ[#, Hold[_Module]] &]]];
+    rules = Cases[gr, HoldPattern[RuleDelayed["MouseClicked", rhs_]] :> Hold[rhs], Infinity];
+    nodeRule = SelectFirst[rules, ! FreeQ[#, s_String /; StringMatchQ[s, "cqu1[" ~~ __]] && FreeQ[#, {_String, _String, _Integer}] &, None];
+    If[nodeRule === None, False, ReleaseHold[nodeRule]; S["center"] === "cqu1" && S["history"] === {"cuH"} && ListQ[S["fIdxOf"]["cqu1"]]]];
+  check["focus view: clicking a flavoured coefficient recenters on it (operator and flavour component)", clickF];
+  (* independent cross-check against the symbolic entries of the source (only if Input files/ADM is present) *)
+  If[DirectoryQ[admDir],
+   Module[{inp = fd["Meta", "Inputs"], ys, Y, val, ok = True, chainMat, nf = <|1 -> N[1/(16 Pi^2)], 2 -> N[1/(16 Pi^2)^2]|>, raw = "SMEFTFlavorRaw`", m, picks},
+    P["loadFlavorADMSource"][admDir];
+    ys = P["flavorYukawas"][inp, "FullUp"];
+    Y = <|"Yu" -> ys[[1]], "Yd" -> ys[[2]], "Ye" -> ys[[3]]|>;
+    chainMat[toks_] := Dot @@ (If[#[[2]], ConjugateTranspose[Y[#[[1]]]], Y[#[[1]]]] & /@ toks);
+    val[ex_] := ex /. {h_Symbol[i_Integer, j_Integer] /; Context[h] === raw :> chainMat[Symbol[raw <> "$admChainTokens"][SymbolName[h]]][[i, j]]} /.
+       {s_Symbol /; Context[s] === raw :> Switch[SymbolName[s], "g", inp["gL"], "gp", inp["gY"], "gs", inp["gs"], "lambda", inp["lambda"], "m2", 0.,
+          _, Tr[chainMat[Symbol[raw <> "$admTraceTokens"][SymbolName[s]]]]]};
+    Do[
+     m = fd["Matrices", "FullUp", h];
+     picks = RandomSample[m["NonzeroPositions"], 6];
+     Do[With[{r = fd["Rows"][[pk[[1]]]], c = fd["Cols"][[pk[[2]]]]},
+       With[{ex = Block[{$Context = raw, $ContextPath = {"System`"}}, Symbol[raw <> "ADMEntry"][h, r["Name"], c["Name"], c["Conj"]]]},
+        ok = ok && Abs[nf[h] val[ex] - m[[Sequence @@ pk]]] <= 10.^-9 Abs[m[[Sequence @@ pk]]]]], {pk, picks}], {h, 1, 2}];
+    check["flavour: 12 random stored elements equal the symbolic entries of Input files/ADM (ADMEntry) evaluated at M_t", ok];
+    (* at a random point (complex Yukawas, no cut-off) the nonzero flavoured blocks are exactly the edges of the generic ADM *)
+    Module[{rnd = (SeedRandom[4711]; RandomComplex[{-1 - I, 1 + I}, {3, 3, 3}]), pt, rowsG, colsG, nm = Symbol[raw <> "$admMeta"]["names"], cj = Symbol[raw <> "$admMeta"]["conj"], blocks, generic, mism = {}},
+     pt = Symbol[raw <> "ADMPoint"][0.6, 0.35, 1.1, 0.3, 0., rnd[[1]], rnd[[2]], rnd[[3]]];
+     rowsG = Lookup[AssociationThread[{nm, cj}\[Transpose] -> Range[Length[nm]]], Key[{#["Name"], 0}]] & /@ fd["Rows"];
+     colsG = Lookup[AssociationThread[{nm, cj}\[Transpose] -> Range[Length[nm]]], Key[{#["Name"], Boole[#["Conj"]]}]] & /@ fd["Cols"];
+     Do[
+      blocks = Union[{fd["Cols"][[#[[2]], "Op"]], fd["Rows"][[#[[1]], "Op"]]} & /@ Select[Most[ArrayRules[Chop[Symbol[raw <> "ADMMatrix"][h, pt][[rowsG, colsG]], 10.^-12]]], True &][[All, 1]]];
+      generic = Union[Keys[Select[d["Edges"], #["L" <> ToString[h]] &]], {#, #} & /@ Select[ops, d["SelfRunning", #, "L" <> ToString[h]] &]];
+      If[blocks =!= generic, AppendTo[mism, {h, Complement[blocks, generic], Complement[generic, blocks]}]], {h, 1, 2}];
+     check["flavour: at a random point the nonzero flavoured blocks are exactly the generic edges and self-running (both loop orders)", mism === {}, mism]]]]]];
+
 (* ---------------------------------------------------------------- click handlers must be self-contained *)
 (* Regression test: handlers that refer to Module-local symbols stop working in the front end (the
    temporary symbols are removed once only the front end holds the graphic). *)

@@ -31,6 +31,8 @@ ADMDataSummary::usage = "ADMDataSummary[data] prints the sanity-check summary of
 ExplorerGraphData::usage = "ExplorerGraphData[data, center, direction, mode, opts] returns vertices, edges and metadata of the explorer graph (no UI).";
 EdgeExpressionHeld::usage = "EdgeExpressionHeld[data, {src, tgt}, L] reconstructs the raw (Matchete notation) contribution as HoldComplete expression in the private context SMEFTADMRaw`.";
 $SMEFTADMExplorerDirectory::usage = "Directory of the package file.";
+BuildFlavorADMData::usage = "BuildFlavorADMData[admDir, outFile] evaluates the explicit-flavour ADM of admDir (Input files/ADM) at the reference point mu = M_t and writes FlavorADMData.wxf (dev time only).";
+LoadFlavorADMData::usage = "LoadFlavorADMData[file] reads FlavorADMData.wxf (None if the file does not exist).";
 
 Begin["`Private`"];
 
@@ -651,13 +653,16 @@ interleave[sorted_List, counts_List] := Module[{assigned = ConstantArray[0, Leng
 
 radialLayout[graph_Association, prep_Association] := Module[
   {center = graph["Center"], verts = graph["Vertices"], depth = graph["Depth"], classPos = prep["ClassPos"], cls = prep["Class"], opPos = prep["OpPos"],
-   bands, allRings = {}, nRings, radii = {}, prev = 0., sp, r, pos = <||>, ringOf = <||>, angleOf = <||>, sorter},
-  sorter[op_] := {classPos[cls[op]], opPos[op]};
+   bands, allRings = {}, nRings, radii = {}, prev = 0., sp, r, pos = <||>, ringOf = <||>, angleOf = <||>, sorter, nodeOp, wf},
+  (* vertex IDs may be copies of operators (flavoured chips "cuH[3,3]"): class and order are those of the operator *)
+  nodeOp = Lookup[graph, "NodeOp", Association[# -> # & /@ verts]];
+  wf = Lookup[graph, "NodeSize", $nodeSize][[1]]/$nodeSize[[1]];
+  sorter[v_] := {classPos[cls[nodeOp[v]]], opPos[nodeOp[v]], v};
   bands = Table[SortBy[Select[verts, depth[#] === d &], sorter], {d, 1, 2}];
   Do[If[band =!= {}, allRings = Join[allRings, interleave[band, ringCounts[Length[band]]]]], {band, bands}];
   nRings = Length[allRings];
   Do[
-   sp = If[nRings === 1, 80., If[k < nRings, 96., 76.]];
+   sp = wf If[nRings === 1, 80., If[k < nRings, 96., 76.]];
    r = Max[If[k === 1, 130., prev + 88.], Length[allRings[[k]]] sp/(2 Pi)];
    AppendTo[radii, r]; prev = r, {k, nRings}];
   pos[center] = {0., 0.};
@@ -886,7 +891,7 @@ routeEdges[graph_Association, layout_Association] := Module[
    ringNodes = layout["RingNodes"], onesVec, maskExcl, generic, vgData, buildVG, visVec, dijk, routeVG, shiftPath, corr, gatePts, routeStar, nodeOf, starRes = <||>, members = <||>, offsetsOf = <||>, centerPos},
   opsList = Keys[pos];
   opIdx = AssociationThread[opsList, Range[Length[opsList]]];
-  sizes = Association[# -> Which[# === center, $centerSize, TrueQ[graph["Tree"]] && graph["Depth"][#] === 2, $leafSize, True, $nodeSize] & /@ opsList];
+  sizes = Association[# -> Which[# === center, $centerSize, TrueQ[graph["Tree"]] && graph["Depth"][#] === 2, $leafSize, True, Lookup[graph, "NodeSize", $nodeSize]] & /@ opsList];
   boxesM = Association[# -> boxOf[pos[#], sizes[#], If[TrueQ[graph["Tree"]] && sizes[#] === $leafSize, 3., $nodeMargin]] & /@ opsList];
   boxesPlain = Association[# -> boxOf[pos[#], sizes[#], 1.5] & /@ opsList];
   bmMat = Developer`ToPackedArray[N[Values[boxesM]]];
@@ -1027,7 +1032,7 @@ layoutRadius[layout_Association, routing_Association] := Max[Join[
 $rtDebug = <||>;
 $layoutCache = <||>;
 computeLayout[data_Association, graph_Association, layoutName_String] := Module[{prep = getPrep[data], key, lay, rt},
-  key = {data["Meta", "SourceHash"], graph["Center"], graph["Direction"], graph["Mode"], Hash[graph["Vertices"]], Hash[graph["Edges"]], If[TrueQ[graph["Tree"]], "Tree", layoutName]};
+  key = {data["Meta", "SourceHash"], graph["Center"], graph["Direction"], graph["Mode"], Hash[graph["Vertices"]], Hash[{#["From"], #["To"], #["Hop"]} & /@ graph["Edges"]], Lookup[graph, "NodeSize", None], If[TrueQ[graph["Tree"]], "Tree", layoutName]};
   If[! KeyExistsQ[$layoutCache, key],
    lay = Which[TrueQ[graph["Tree"]], treeLayout[graph, prep], layoutName === "Spring", springLayout[graph, prep], True, radialLayout[graph, prep]];
    rt = routeEdges[graph, lay];
@@ -1152,12 +1157,13 @@ edgeTooltip[data_Association, e_Association] := Module[{f = e["From"], t = e["To
      If[ed["L2"] && unverifiedRulesFor[f, t] =!= {},
       {Row[{warnIcon[14], Style["  two-loop part not cross-checked (\[Gamma]5 reading point)", 11, Bold, $warnDark, FontFamily -> $uiFont]}]}, {}],
      If[via === None, {}, {Style[via, 11, FontFamily -> $uiFont]}],
+     If[KeyExistsQ[e, "FlavorMax"], {flavorMaxLine[e]}, {}],
      {Style["click for the full entry", Gray, 10, FontFamily -> $uiFont]}], Left, 0.35],
    FrameStyle -> GrayLevel[0.7], Background -> White, FrameMargins -> 6]];
 
 (* what the node tooltip needs, as a small association (so that the tooltip can be built lazily, on hover) *)
 nodeTooltipInfo[graph_Association, id_String] := With[{op = graph["NodeOp"][id]},
-  <|"Op" -> op, "Center" -> (id === graph["Center"]), "New" -> MemberQ[graph["NewEndpoints"], op],
+  <|"Op" -> op, "Label" -> If[KeyExistsQ[graph, "Labels"], graph["Labels"][id], None], "Center" -> (id === graph["Center"]), "New" -> MemberQ[graph["NewEndpoints"], op],
    "Leaf" -> (TrueQ[graph["Tree"]] && id =!= graph["Center"] && graph["Depth"][id] === 2),
    "Outgoing" -> (graph["Direction"] === "Outgoing"), "Direction" -> graph["Direction"],
    "SelfUnverified" -> (id === graph["Center"] && unverifiedRulesFor[op, op] =!= {}),
@@ -1167,8 +1173,8 @@ nodeTooltipInfo[graph_Association, id_String] := With[{op = graph["NodeOp"][id]}
    "Parent" -> If[TrueQ[graph["Tree"]] && KeyExistsQ[graph["Parent"], id], graph["Parent"][id], None],
    "Others" -> If[TrueQ[graph["Tree"]] && KeyExistsQ[graph["Parent"], id], Length[DeleteCases[graph["Copies"][op], graph["Parent"][id]]], 0]|>];
 
-nodeTooltipFromInfo[data_Association, info_Association] := With[{op = info["Op"]}, Framed[Column[{
-     opLabel[data, op, 15],
+nodeTooltipFromInfo[data_Association, info_Association] := With[{op = info["Op"], flav = (Lookup[info, "Label", None] =!= None)}, Framed[Column[{
+     If[flav, Style[info["Label"], FontFamily -> "Times", FontSize -> 15], opLabel[data, op, 15]],
      Style[classDisplayName[data, data["OperatorInfo", op, "Class"]] <> " operator   (" <> op <> ")", 11, FontFamily -> $uiFont],
      If[info["New"], Style[newOrderText[], 11, FontFamily -> $uiFont, FontColor -> $haloColor], Nothing],
      If[TrueQ[info["SelfUnverified"]], Row[{warnIcon[14], Style["  its two-loop self-running is not cross-checked (\[Gamma]5 reading point)", 11, Bold, $warnDark, FontFamily -> $uiFont]}], Nothing],
@@ -1183,6 +1189,7 @@ nodeTooltipFromInfo[data_Association, info_Association] := With[{op = info["Op"]
       info["Center"], Style["current center", Gray, 10, FontFamily -> $uiFont],
       info["Ring1"] && info["Branches"] > 0,
       Style[Column[{If[info["IsOpen"], "click: close its branch", "click: open its branch"], "shift-click: recenter on this operator"}, Left, 0.1], Gray, 10, FontFamily -> $uiFont],
+      flav, Style["click to recenter on this coefficient", Gray, 10, FontFamily -> $uiFont],
       True, Style["click to recenter on this operator", Gray, 10, FontFamily -> $uiFont]]}, Left, 0.3],
    FrameStyle -> GrayLevel[0.7], Background -> White, FrameMargins -> 6]];
 
@@ -1190,8 +1197,10 @@ nodeTooltip[data_Association, graph_Association, id_String] := nodeTooltipFromIn
 
 (* Tooltips are built only when the mouse rests on an object: a graph has up to 350 arrows and 350 nodes, and
    building (and shipping to the front end) all their typeset tooltips made the large views sluggish. *)
-lazyEdgeTooltip[e_Association] := With[{f = e["From"], t = e["To"], h = e["Hop"]},
-  Dynamic[edgeTooltip[$explorerData, <|"From" -> f, "To" -> t, "Hop" -> h|>]]];
+lazyEdgeTooltip[e_Association] := Which[
+  TrueQ[e["Flavor"]], With[{a = KeyTake[e, {"From", "To", "Parts", "Combo", "Sel"}]}, Dynamic[flavorEdgeTooltip[a]]],
+  KeyExistsQ[e, "FlavorMax"], With[{a = KeyTake[e, {"From", "To", "Hop", "FlavorMax", "Combo", "Sel"}]}, Dynamic[edgeTooltip[$explorerData, a]]],
+  True, With[{f = e["From"], t = e["To"], h = e["Hop"]}, Dynamic[edgeTooltip[$explorerData, <|"From" -> f, "To" -> t, "Hop" -> h|>]]]];
 lazyNodeTooltip[info_Association] := With[{i = info}, Dynamic[nodeTooltipFromInfo[$explorerData, i]]];
 
 Options[renderGraphics] = {"EdgeThickness" -> 1.8, "CanvasSize" -> 880, "Zoom" -> 1., "OnNodeClick" -> (None &), "OnBranchClick" -> Automatic, "OnEdgeClick" -> (None &), "ShowSelf" -> False, "ShowUnverified" -> True};
@@ -1216,42 +1225,52 @@ renderGraphics[data_Association, graph_Association, layoutName_String, OptionsPa
   paths = Association[Table[i -> z rt["Paths"][i], {i, Length[edges]}]];
   (* arrows whose two-loop entry is not cross-checked (Table 3 of the paper): an amber band under the arrow and a warning
      triangle at its midpoint. Only in the "Direct" view, whose arrows stand for the one- and the two-loop entry. *)
-  unvIdx = If[TrueQ[OptionValue["ShowUnverified"]] && graph["Mode"] === "Direct",
-    Select[Range[Length[edges]], data["Edges", {edges[[#, "From"]], edges[[#, "To"]]}, "L2"] && unverifiedRulesFor[edges[[#, "From"]], edges[[#, "To"]]] =!= {} &], {}];
+  unvIdx = Which[
+    ! TrueQ[OptionValue["ShowUnverified"]], {},
+    graph["Mode"] === "Direct",
+    Select[Range[Length[edges]], data["Edges", {edges[[#, "From"]], edges[[#, "To"]]}, "L2"] && unverifiedRulesFor[edges[[#, "From"]], edges[[#, "To"]]] =!= {} &],
+    graph["Mode"] === "Flavour",
+    Select[Range[Length[edges]], edges[[#, "L2"]] && unverifiedRulesFor[edges[[#, "FromOp"]], edges[[#, "ToOp"]]] =!= {} &],
+    True, {}];
   unvPrims = Table[{$warnFill, AbsoluteThickness[th + 6], CapForm["Round"], JoinForm["Round"], Line[paths[i]]}, {i, unvIdx}];
   (* draw the long, green edges first so that the red ones stay on top *)
   edgePrims = With[{onEdge = onEdge}, Table[
     With[{e = edges[[i]], pts = paths[i]},
-     With[{col = If[e["Color"] === "Red", $edgeRed, $edgeGreen], dash = If[e["Color"] === "Green", AbsoluteDashing[{7, 4}], Dashing[None]],
-       key = {e["From"], e["To"], e["Hop"]}, ahs = If[TrueQ[graph["Tree"]] && e["Hop"] === 2, ahSize 0.6, ahSize]},
+     (* weighted arrows (explicit flavour): own thickness; arrows below the threshold are drawn faded *)
+     With[{col = Which[TrueQ[e["Faded"]], GrayLevel[0.8], e["Color"] === "Red", $edgeRed, True, $edgeGreen], dash = If[e["Color"] === "Green", AbsoluteDashing[{7, 4}], Dashing[None]],
+       key = {e["From"], e["To"], e["Hop"]}, ahs = If[TrueQ[graph["Tree"]] && e["Hop"] === 2, ahSize 0.6, ahSize], tk = If[KeyExistsQ[e, "Thick"], e["Thick"] th/1.8, th]},
       EventHandler[
        Tooltip[
-        {{col, AbsoluteThickness[th], dash, Arrowheads[{{ahs, 1}}], Arrow[Line[pts]]},
+        {{col, AbsoluteThickness[tk], dash, Arrowheads[{{ahs, 1}}], Arrow[Line[pts]]},
          (* the hit line is invisible; under the mouse it is replaced by the thick highlighted arrow *)
          Mouseover[{White, Opacity[0.01], AbsoluteThickness[11], Line[pts]},
-          {{Darker[col, 0.25], AbsoluteThickness[th + 2.2], dash, Arrowheads[{{ahs 1.25, 1}}], Arrow[Line[pts]]}, {White, Opacity[0.01], AbsoluteThickness[11], Line[pts]}}]},
+          {{Darker[col, 0.25], AbsoluteThickness[tk + 2.2], dash, Arrowheads[{{ahs 1.25, 1}}], Arrow[Line[pts]]}, {White, Opacity[0.01], AbsoluteThickness[11], Line[pts]}}]},
         lazyEdgeTooltip[e]],
        {"MouseClicked" :> onEdge[key]}]]], {i, Length[edges]}]];
-  edgePrims = edgePrims[[Ordering[If[#["Color"] === "Green", 0, 1] & /@ edges, All, Less]]];
+  edgePrims = edgePrims[[Ordering[{If[TrueQ[#["Faded"]], 0, 1], If[#["Color"] === "Green", 0, 1]} & /@ edges, All, OrderedQ[{#1, #2}] &]]];
   unvMarkers = With[{onEdge = onEdge}, Table[
      With[{e = edges[[i]], pt = polylineMidpoint[paths[i]]},
       With[{key = {e["From"], e["To"], e["Hop"]}},
        EventHandler[Tooltip[Inset[warnIcon[18], pt, Center], lazyEdgeTooltip[e]], {"MouseClicked" :> onEdge[key]}]]], {i, unvIdx}]];
   nodePrims = With[{onNode = onNode, onBranch = onBranch}, Table[
-    With[{id = op0, op = nodeOp[op0], p = z pos[op0], sz = z sizes[op0]},
+    With[{id = op0, op = nodeOp[op0], p = z pos[op0], sz = z sizes[op0], ca = If[KeyExistsQ[graph, "Labels"], op0, nodeOp[op0]]},
      With[{isC = (id === center), fill = $classColors[data["OperatorInfo", op, "Class"]], isNew = MemberQ[newEnd, op],
        fsz = Which[id === center, 17., sz[[1]] < 55. z, 11.5, True, 13.] z},
       With[{rect = Rectangle[p - sz/2, p + sz/2, RoundingRadius -> 6 z],
         halo = If[isNew, {EdgeForm[{AbsoluteThickness[2.6], $haloColor}], FaceForm[None], Rectangle[p - sz/2 - 4 z, p + sz/2 + 4 z, RoundingRadius -> 9 z],
            EdgeForm[{AbsoluteThickness[1.2], Lighter[$haloColor, 0.55]}], Rectangle[p - sz/2 - 8 z, p + sz/2 + 8 z, RoundingRadius -> 12 z]}, {}],
-        lab = Inset[Style[data["OperatorInfo", op, "Label"], FontFamily -> "Times", FontSize -> fsz, FontColor -> GrayLevel[0.08]],
+        lab = Inset[Style[If[KeyExistsQ[graph, "Labels"], graph["Labels"][id], data["OperatorInfo", op, "Label"]], FontFamily -> "Times", FontSize -> fsz, FontColor -> GrayLevel[0.08]],
           p + If[isC && OptionValue["ShowSelf"], {0, 9 z}, {0, 0}], Center],
         nBr = If[TrueQ[graph["Tree"]] && graph["Depth"][id] === 1, Lookup[graph["BranchCount"], op, 0], 0],
         isOpen = (graph["Open"] === All || MemberQ[graph["Open"], op]),
-        selfTxt = If[isC && OptionValue["ShowSelf"] && graph["Self"] =!= None,
+        selfTxt = Which[
+         isC && OptionValue["ShowSelf"] && KeyExistsQ[graph, "SelfValue"],
+         Text[Style[Row[{"self: ", fmtComplex[graph["SelfValue"]]}], FontFamily -> $uiFont, FontSize -> 9.5 z, FontColor -> GrayLevel[0.15]], p + {0, -14 z}],
+         isC && OptionValue["ShowSelf"] && graph["Self"] =!= None,
           {Text[Style[selfBadgeString[graph["Self"]], FontFamily -> $uiFont, FontSize -> 9.5 z, FontColor -> GrayLevel[0.15]], p + {0, If[unverifiedRulesFor[op, op] =!= {} && graph["Self"]["L2"], -9.5 z, -14 z]}],
            If[unverifiedRulesFor[op, op] =!= {} && graph["Self"]["L2"],
-            Text[Row[{warnIcon[11], Style[" 2L unchecked", FontFamily -> $uiFont, FontSize -> 8.5 z, Bold, FontColor -> $warnDark]}], p + {0, -20.5 z}], Nothing]}, {}]},
+            Text[Row[{warnIcon[11], Style[" 2L unchecked", FontFamily -> $uiFont, FontSize -> 8.5 z, Bold, FontColor -> $warnDark]}], p + {0, -20.5 z}], Nothing]},
+         True, {}]},
        EventHandler[
         Tooltip[
          {halo, EdgeForm[{AbsoluteThickness[If[isC, 2.4, 1]], If[isC, Black, GrayLevel[0.35]]}], FaceForm[fill], rect, lab, selfTxt,
@@ -1264,7 +1283,7 @@ renderGraphics[data_Association, graph_Association, layoutName_String, OptionsPa
           Mouseover[{EdgeForm[None], FaceForm[GrayLevel[1, 0.01]], rect},
            {EdgeForm[{AbsoluteThickness[2.2], RGBColor["#1565C0"]}], FaceForm[GrayLevel[1, 0.3]], rect}]},
          lazyNodeTooltip[nodeTooltipInfo[graph, id]]],
-        {"MouseClicked" :> If[nBr > 0, onBranch[op], onNode[op]]}]]]], {op0, graph["Vertices"]}]];
+        {"MouseClicked" :> If[nBr > 0, onBranch[op], onNode[ca]]}]]]], {op0, graph["Vertices"]}]];
   <|"Primitives" -> {unvPrims, edgePrims, unvMarkers, nodePrims}, "NUnverified" -> Length[unvIdx], "UnverifiedEdges" -> edges[[unvIdx]], "PlotRange" -> R z {{-1, 1}, {-1, 1}}, "ImageSize" -> 2 R z, "Zoom" -> z,
     "Paths" -> paths, "Positions" -> Association[# -> z pos[#] & /@ Keys[pos]], "Violations" -> rt["Violations"], "Radius" -> R|>];
 
@@ -1279,13 +1298,16 @@ selectedEdgeOverlay[paths_Association, edges_List, sel_] := Module[{i},
   If[i === None || ! KeyExistsQ[paths, i], {}, {RGBColor[1., 0.82, 0.1, 0.55], AbsoluteThickness[9], CapForm["Round"], Line[paths[i]]}]];
 
 (* legend: edge styles and highlights *)
-legendEdgeStyles[mode_String, showUnv_ : False] := Grid[{
+legendEdgeStyles[mode_String, showUnv_ : False, weighted_ : False] := Grid[{
     {Graphics[{$edgeRed, AbsoluteThickness[2], Arrowheads[{{0.22, 1}}], Arrow[{{0, 0}, {1, 0}}]}, ImageSize -> 46, PlotRange -> {{-0.05, 1.05}, {-0.3, 0.3}}, AspectRatio -> 0.35],
      Style["nonzero at one loop", 11, FontFamily -> $uiFont]},
-    If[mode === "Direct",
+    If[mode === "Direct" || mode === "Flavour",
      {Graphics[{$edgeGreen, AbsoluteThickness[2], AbsoluteDashing[{6, 3}], Arrowheads[{{0.22, 1}}], Arrow[{{0, 0}, {1, 0}}]}, ImageSize -> 46, PlotRange -> {{-0.05, 1.05}, {-0.3, 0.3}}, AspectRatio -> 0.35],
       Style["two-loop only (dashed)", 11, FontFamily -> $uiFont]}, Nothing],
-    If[mode === "Direct" && TrueQ[showUnv],
+    If[TrueQ[weighted],
+     {Graphics[{$edgeRed, AbsoluteThickness[0.8], Line[{{0, 0.15}, {1, 0.15}}], AbsoluteThickness[4], Line[{{0, -0.15}, {1, -0.15}}]}, ImageSize -> 46, PlotRange -> {{-0.05, 1.05}, {-0.3, 0.3}}, AspectRatio -> 0.35],
+      Pane[Style["thickness: log of the largest |flavoured element| (grey: below the threshold)", 11, FontFamily -> $uiFont], 200]}, Nothing],
+    If[(mode === "Direct" || mode === "Flavour") && TrueQ[showUnv],
      {Graphics[{$warnFill, AbsoluteThickness[8], CapForm["Round"], Line[{{0, 0}, {1, 0}}], $edgeRed, AbsoluteThickness[2], Arrowheads[{{0.22, 1}}], Arrow[{{0, 0}, {1, 0}}],
          Inset[warnIcon[15], {0.5, 0}, Center]}, ImageSize -> 46, PlotRange -> {{-0.05, 1.05}, {-0.3, 0.3}}, AspectRatio -> 0.35],
       Pane[Style["amber band and triangle: the two-loop entry is not cross-checked (\[Gamma]5 ambiguity, see below)", 11, FontFamily -> $uiFont], 200]}, Nothing],
@@ -1466,18 +1488,40 @@ SMEFTADMExplorer[src_, startOp_String : "cH"] := Module[{data = Which[Associatio
   If[StringQ[src], $loadedDataFile = src];
   If[! AssociationQ[data], Message[SMEFTADMExplorer::data, src]; Return[$Failed]];
   $explorerData = data;
+  (* explicit-flavour data (optional): FlavorADMData.wxf next to the data file, or next to the package *)
+  If[! AssociationQ[$flavorData],
+   $flavorData = LoadFlavorADMData[If[StringQ[src] && FileExistsQ[FileNameJoin[{DirectoryName[src], "FlavorADMData.wxf"}]], FileNameJoin[{DirectoryName[src], "FlavorADMData.wxf"}], $defaultFlavorFile]]];
   start = Catch[normalizeOpID[data, startOp], "badop"];
   If[start === $Failed, Return[$Failed]];
   explorerUI[data, start]];
 
+(* the graph that the UI shows: family graph (optionally weighted by the explicit-flavour data) or the flavour focus view.
+   fl = <|"Combo", "Loop", "Weight", "Thr", "Idx", "K"|> *)
+currentGraph[center_String, direction_String, mode_String, showSelf_, excl_, hidden_List, openB_, fl_Association] := Module[{g},
+  If[mode === "Flavour" && AssociationQ[$flavorData],
+   flavorFocusGraph[$flavorData, center, fl["Idx"], direction, fl["Combo"], fl["Loop"], fl["K"], fl["Thr"]],
+   g = ExplorerGraphData[$explorerData, center, direction, If[mode === "Flavour", "Direct", mode], "ShowSelfRunning" -> showSelf, "ExcludeTrivialChains" -> excl,
+     "HiddenClasses" -> hidden, "OpenBranches" -> openB];
+   If[TrueQ[fl["Weight"]] && AssociationQ[$flavorData] && MemberQ[{"Direct", "OneLoop"}, mode],
+    weightFamilyEdges[g, $flavorData, fl["Combo"], If[mode === "OneLoop", "1L", fl["Loop"]], fl["Thr"]], g]]];
+
+flavorInfoLine[graph_Association] := Style[Row[{
+    "Showing the ", Length[graph["Edges"]], " strongest of ", graph["NPartners"], " flavoured coefficients ", If[graph["Direction"] === "Outgoing", "it runs into", "running into it"],
+    " (|element| \[GreaterEqual] ", fmtReal[graph["Threshold"]], "):  ", Style[graph["NRed"], $edgeRed, Bold], " red (nonzero at one loop),  ",
+    Style[graph["NGreen"], $edgeGreen, Bold], " green (two-loop only)"}], 12, FontFamily -> $uiFont];
+
+(* family key of a selection (in the focus view arrows connect flavoured coefficients) *)
+familyKey[sel_] := If[ListQ[sel] && StringContainsQ[sel[[1]], "["] , {parseFlavorID[sel[[1]]][[1]], parseFlavorID[sel[[2]]][[1]], 1}, sel];
+
 explorerUI[data_Association, start_String] := With[{
-   classIDs = data["Classes"][[All, 1]], opsAll = data["Operators"],
+   classIDs = data["Classes"][[All, 1]], opsAll = data["Operators"], hasFl = AssociationQ[$flavorData],
    classRows = Table[With[{cid = cr[[1]]},
       Row[{Checkbox[Dynamic[shown[cid]]],
         Graphics[{$classColors[cid], EdgeForm[GrayLevel[0.4]], Rectangle[{0, 0}, {1, 0.55}, RoundingRadius -> 0.15]}, ImageSize -> {26, 15}, PlotRange -> {{-0.05, 1.05}, {-0.05, 0.6}}, AspectRatio -> Full],
         Style[classLabel[cr[[1]]], 12, FontFamily -> $uiFont]}, "  "]], {cr, data["Classes"]}]},
   DynamicModule[{center = start, history = {}, direction = "Incoming", mode = "Direct", layoutName = "Radial", showSelf = True,
-    excl = True, shown = Association[# -> True & /@ classIDs], thick = 1.8, zoom = 1., showUnv = True, ringsAll = False, openSet = {}, openKey = None, selected = None, showFull = False, query = "", browseClass = classIDs[[1]]},
+    excl = True, shown = Association[# -> True & /@ classIDs], thick = 1.8, zoom = 1., showUnv = True, ringsAll = False, openSet = {}, openKey = None, selected = None, showFull = False, query = "", browseClass = classIDs[[1]],
+    combo = "FullUp", floop = "Sum", weightOn = False, wexp = -8, fIdxOf = <||>, fK = 20, fsel = None, ffilter = "", fall = False, rtab = 1},
    Grid[{{
       (* ---------------- left column: controls ---------------- *)
       Panel[Column[{
@@ -1485,7 +1529,8 @@ explorerUI[data_Association, start_String] := With[{
          Style["dimension-six SMEFT, Mainz basis, one and two loops", Gray, 11, FontFamily -> $uiFont],
          Spacer[{1, 10}],
          Style["Center operator", Bold, 12, FontFamily -> $uiFont],
-         Dynamic[Row[{Style[opLabel[$explorerData, center, 24], Bold], "  ", Style["(" <> center <> ")", Gray, 11]}]],
+         Dynamic[Row[{Style[If[mode === "Flavour" && hasFl, flavorLabel[center, Lookup[fIdxOf, center, defaultFlavorIdx[$flavorData, center]], False, 24], opLabel[$explorerData, center, 24]], Bold],
+            "  ", Style["(" <> center <> ")", Gray, 11]}]],
          Row[{Button["\[LeftTriangle] Back",
              center = Last[history]; history = Most[history]; selected = None,
              Enabled -> Dynamic[history =!= {}], ImageSize -> {80, 24}]}],
@@ -1501,8 +1546,11 @@ explorerUI[data_Association, start_String] := With[{
          Style["Direction", Bold, 12, FontFamily -> $uiFont],
          RadioButtonBar[Dynamic[direction, (direction = #; selected = None) &], {"Outgoing" -> "Runs into (center \[RightArrow] X)", "Incoming" -> "Generated by (X \[RightArrow] center)"}, Appearance -> "Vertical"],
          Style["Mode", Bold, 12, FontFamily -> $uiFont],
-         RadioButtonBar[Dynamic[mode, (mode = #; selected = None) &], {"OneLoop" -> "1-loop only", "Direct" -> "1-loop + 2-loop (direct)", "OneLoopSquared" -> "1-loop squared (chains)"}, Appearance -> "Vertical"],
-         Dynamic[If[mode === "OneLoopSquared",
+         RadioButtonBar[Dynamic[mode, (mode = #; selected = None; fsel = None; If[# === "Flavour", rtab = 2; layoutName = "Radial"]) &],
+          Join[{"OneLoop" -> "1-loop only", "Direct" -> "1-loop + 2-loop (direct)", "OneLoopSquared" -> "1-loop squared (chains)"},
+           If[hasFl, {"Flavour" -> "explicit flavour (numerical)"}, {}]], Appearance -> "Vertical"],
+         Dynamic[Which[
+           mode === "OneLoopSquared",
            Column[{
              Style["Show", Bold, 12, FontFamily -> $uiFont],
              RadioButtonBar[Dynamic[Which[ringsAll, "Both", openBranchesNow[ringsAll, openKey, openSet, center, direction] === {}, "First", True, None],
@@ -1513,10 +1561,28 @@ explorerUI[data_Association, start_String] := With[{
                  True, "click a first-ring operator to open its branch"], Gray, 10, FontFamily -> $uiFont],
               TrackedSymbols :> {ringsAll, openSet, openKey, center, direction}],
              Style["shift-click an operator to recenter on it", Gray, 10, FontFamily -> $uiFont]}, Left, 0.4],
+           mode === "Flavour",
+           Column[{
+             Style["Flavour component of the center", Bold, 12, FontFamily -> $uiFont],
+             PopupMenu[Dynamic[Lookup[fIdxOf, center, defaultFlavorIdx[$flavorData, center]], (fIdxOf[center] = #; selected = None) &],
+              (# -> flavorLabel[center, #, False, 12]) & /@ flavorIdxChoices[$flavorData, center], ImageSize -> {150, 26}],
+             Row[{"partners shown  ", Slider[Dynamic[fK], {5, 40, 1}, ImageSize -> 100], "  ", Dynamic[fK]}],
+             Style["click a coefficient to recenter on it", Gray, 10, FontFamily -> $uiFont]}, Left, 0.4],
+           True,
            Column[{
              Style["Layout", Bold, 12, FontFamily -> $uiFont],
              RadioButtonBar[Dynamic[layoutName, (layoutName = #; selected = None) &], {"Radial" -> "Radial (rings)", "Spring" -> "Spring"}]}, Left, 0.4]],
-          TrackedSymbols :> {mode}],
+          TrackedSymbols :> {mode, center}],
+         If[hasFl,
+          Column[{
+            Spacer[{1, 6}],
+            Style["Explicit flavour (at \[Mu] = M_t)", Bold, 12, FontFamily -> $uiFont],
+            PopupMenu[Dynamic[combo, (combo = #; fsel = None) &], $flavorComboMenu, ImageSize -> {200, 24}],
+            RadioButtonBar[Dynamic[floop], $flavorLoopMenu],
+            Row[{Checkbox[Dynamic[weightOn], Enabled -> Dynamic[MemberQ[{"Direct", "OneLoop"}, mode]]], "  arrow thickness: largest flavoured element"}],
+            Row[{"threshold  ", Slider[Dynamic[wexp], {-14, -2, 1}, ImageSize -> 100], "  ", Dynamic[Superscript[10, wexp]]}],
+            OpenerView[{Style["Reference point", Bold, 11, FontFamily -> $uiFont], flavorRefPointPanel[$flavorData]}, False]}, Left, 0.5],
+          Nothing],
          Spacer[{1, 10}],
          Style["Options", Bold, 12, FontFamily -> $uiFont],
          Row[{Checkbox[Dynamic[showSelf]], "  show self-running badge"}],
@@ -1527,26 +1593,31 @@ explorerUI[data_Association, start_String] := With[{
          Style["Show operator classes", Bold, 12, FontFamily -> $uiFont],
          Column[classRows, Left, 0.3],
          Spacer[{1, 10}],
-         Dynamic[legendEdgeStyles[mode, showUnv], TrackedSymbols :> {mode, showUnv}],
+         Dynamic[legendEdgeStyles[mode, showUnv, mode === "Flavour" || (weightOn && MemberQ[{"Direct", "OneLoop"}, mode])], TrackedSymbols :> {mode, showUnv, weightOn}],
          Spacer[{1, 6}],
          OpenerView[{Row[{warnIcon[14], Style["  Two-loop entries not cross-checked", Bold, 12, FontFamily -> $uiFont]}], unverifiedOverview[$explorerData]}, False]}, Left, 0.9], ImageSize -> {290, All}],
       (* ---------------- middle: the graph ---------------- *)
       Column[{
-        Dynamic[infoLine[ExplorerGraphData[$explorerData, center, direction, mode, "ExcludeTrivialChains" -> excl, "HiddenClasses" -> Keys[Select[shown, ! # &]],
-           "OpenBranches" -> openBranchesNow[ringsAll, openKey, openSet, center, direction]]],
-         TrackedSymbols :> {center, direction, mode, excl, shown, ringsAll, openSet, openKey}],
+        Dynamic[
+         With[{g = currentGraph[center, direction, mode, showSelf, excl, Keys[Select[shown, ! # &]], openBranchesNow[ringsAll, openKey, openSet, center, direction],
+             <|"Combo" -> combo, "Loop" -> floop, "Weight" -> weightOn, "Thr" -> 10.^wexp, "Idx" -> Lookup[fIdxOf, center, {}], "K" -> fK|>]},
+          If[g["Mode"] === "Flavour", flavorInfoLine[g], infoLine[g]]],
+         TrackedSymbols :> {center, direction, mode, excl, shown, ringsAll, openSet, openKey, combo, floop, weightOn, wexp, fIdxOf, fK}],
         Dynamic[
          Module[{graph, r},
-          graph = ExplorerGraphData[$explorerData, center, direction, mode, "ShowSelfRunning" -> showSelf, "ExcludeTrivialChains" -> excl,
-            "HiddenClasses" -> Keys[Select[shown, ! # &]], "OpenBranches" -> openBranchesNow[ringsAll, openKey, openSet, center, direction]];
-          r = renderGraphics[$explorerData, graph, layoutName, "EdgeThickness" -> thick, "ShowSelf" -> showSelf, "Zoom" -> zoom, "ShowUnverified" -> showUnv,
-            "OnNodeClick" -> Function[op, If[op =!= center, history = Append[history, center]; center = op; selected = None]],
+          graph = currentGraph[center, direction, mode, showSelf, excl, Keys[Select[shown, ! # &]], openBranchesNow[ringsAll, openKey, openSet, center, direction],
+            <|"Combo" -> combo, "Loop" -> floop, "Weight" -> weightOn, "Thr" -> 10.^wexp, "Idx" -> Lookup[fIdxOf, center, {}], "K" -> fK|>];
+          r = renderGraphics[$explorerData, graph, If[mode === "Flavour", "Radial", layoutName], "EdgeThickness" -> thick, "ShowSelf" -> showSelf, "Zoom" -> zoom, "ShowUnverified" -> showUnv,
+            (* a click on a flavoured coefficient ("cuH[3,3]") recenters on that coefficient *)
+            "OnNodeClick" -> Function[id, If[StringContainsQ[id, "["],
+               With[{pf = parseFlavorID[id]}, If[pf[[1]] =!= center, history = Append[history, center]]; center = pf[[1]]; fIdxOf[pf[[1]]] = pf[[2]]; selected = None],
+               If[id =!= center, history = Append[history, center]; center = id; selected = None]]],
             (* first-ring chip of a chain view: click opens/closes its branch, shift-click recenters *)
             "OnBranchClick" -> Function[op,
               If[TrueQ[CurrentValue["ShiftKey"]] || MemberQ[Flatten[{CurrentValue["ModifierKeys"]}], "Shift"],
                If[op =!= center, history = Append[history, center]; center = op; selected = None],
                {ringsAll, openKey, openSet} = toggleBranch[$explorerData, center, direction, Keys[Select[shown, ! # &]], ringsAll, openKey, openSet, op]]],
-            "OnEdgeClick" -> Function[key, selected = key]];
+            "OnEdgeClick" -> Function[key, selected = key; fsel = None]];
           With[{paths = r["Paths"], es = graph["Edges"], sz = r["ImageSize"] + 4},
            (* large graphs (chains) scroll inside a fixed viewport, starting at the centre *)
            Pane[
@@ -1554,16 +1625,32 @@ explorerUI[data_Association, start_String] := With[{
              PlotRange -> r["PlotRange"], ImageSize -> r["ImageSize"], PlotRangePadding -> 0, Background -> White, ImagePadding -> 2],
             {Min[sz, 900], Min[sz, 860]}, Scrollbars -> Automatic, ImageSizeAction -> "Scrollable",
             ScrollPosition -> {Max[0, (sz - 900)/2], Max[0, (sz - 860)/2]}]]],
-         TrackedSymbols :> {center, direction, mode, layoutName, showSelf, showUnv, excl, shown, thick, zoom, ringsAll, openSet, openKey}]}, Left, 0.5],
+         TrackedSymbols :> {center, direction, mode, layoutName, showSelf, showUnv, excl, shown, thick, zoom, ringsAll, openSet, openKey, combo, floop, weightOn, wexp, fIdxOf, fK}]}, Left, 0.5],
       (* ---------------- right: side panel ---------------- *)
-      Panel[Column[{
-         Style["Entry", Bold, 14, FontFamily -> $uiFont],
-         Row[{Checkbox[Dynamic[showFull]], "  show full expression (long entries are otherwise collected and truncated)"}],
-         Spacer[{1, 10}],
-         Dynamic[Pane[
-           entryPanel[$explorerData, ExplorerGraphData[$explorerData, center, direction, mode, "ExcludeTrivialChains" -> excl, "HiddenClasses" -> Keys[Select[shown, ! # &]]], selected, showFull],
-           {420, 700}, Scrollbars -> {Automatic, Automatic}, AppearanceElements -> None], TrackedSymbols :> {selected, showFull, center, direction, mode, excl, shown}]}, Left, 0.8],
-         ImageSize -> {460, All}]
+      Panel[With[{
+         generic = Column[{
+           Row[{Checkbox[Dynamic[showFull]], "  show full expression (long entries are otherwise collected and truncated)"}],
+           Spacer[{1, 10}],
+           Dynamic[Pane[
+             entryPanel[$explorerData, ExplorerGraphData[$explorerData, center, direction, If[mode === "Flavour", "Direct", mode], "ExcludeTrivialChains" -> excl, "HiddenClasses" -> Keys[Select[shown, ! # &]]],
+              familyKey[selected], showFull],
+             {420, 680}, Scrollbars -> {Automatic, Automatic}, AppearanceElements -> None], TrackedSymbols :> {selected, showFull, center, direction, mode, excl, shown}]}, Left, 0.8],
+         flavour = Column[{
+           Dynamic[If[mode === "Flavour", Spacer[1],
+             Row[{InputField[Dynamic[ffilter], String, FieldHint -> "filter indices, e.g. 33", ImageSize -> {150, 22}], "  ", Checkbox[Dynamic[fall]], " all"}]], TrackedSymbols :> {mode}],
+           Dynamic[Pane[
+             Which[
+              ! ListQ[selected], Style["Click an arrow to show its explicit-flavour elements here.", Gray, 13, FontFamily -> $uiFont],
+              mode === "Flavour",
+              flavorEdgePanel[$flavorData, currentGraph[center, direction, mode, showSelf, excl, {}, All,
+                <|"Combo" -> combo, "Loop" -> floop, "Weight" -> False, "Thr" -> 10.^wexp, "Idx" -> Lookup[fIdxOf, center, {}], "K" -> fK|>], selected, combo],
+              True, flavorBlockPanel[$flavorData, selected[[1]], selected[[2]], combo, floop, ffilter, fall, (fsel = {#1, #2}) &, fsel]],
+             {420, 680}, Scrollbars -> {Automatic, Automatic}, AppearanceElements -> None],
+            TrackedSymbols :> {selected, mode, combo, floop, ffilter, fall, fsel, center, direction, fIdxOf, fK, wexp}]}, Left, 0.6]},
+        Column[{
+          Style["Entry", Bold, 14, FontFamily -> $uiFont],
+          If[hasFl, TabView[{"generic flavour" -> generic, "explicit flavour" -> flavour}, Dynamic[rtab], ImageSize -> {440, Automatic}], generic]}, Left, 0.8]],
+       ImageSize -> {470, All}]
      }}, Alignment -> {Left, Top}, Spacings -> {1, 0}],
    SaveDefinitions -> False]];
 
@@ -1602,6 +1689,403 @@ MakeExplorerNotebook[nbFile_String, OptionsPattern[]] := Module[{embed = TrueQ[O
   nbFile];
 
 MakeExplorerNotebook::nodata = "Data file `1` not found; run BuildADMData first.";
+
+(* ================================================================================================
+   12. Explicit flavour: build step (dev time only) and loading
+   ================================================================================================
+   Source: Input files/ADM (explicit-flavour ADM in the (C, C-bar) basis of the independent DsixTools parameters with
+   Mainz names, read with its own loader SMEFT_ADM.wl in an isolated context). The build evaluates the ADM at ONE
+   reference point (mu = M_t, $flavorRefInputs) for four Yukawa settings and stores the numbers, plus the exact
+   entries in the top+gauge approximation, in FlavorADMData.wxf. The explorer only reads that file.
+
+   Stored numbers are the user's normalisation: gamma^(1)/(16 Pi^2) and gamma^(2)/(16 Pi^2)^2, i.e. the contribution
+   of C_b to dC_a/dln mu. Rows: the C entries of the 59 dimension-six operators (the C* rows are their conjugates),
+   columns: C and C-bar entries. CllHH and the baryon-number-violating families are not included.                      *)
+
+$flavorRawContext = "SMEFTFlavorRaw`";
+flavorRaw[name_String] := Symbol[$flavorRawContext <> name];
+
+(* SM inputs at mu = M_t (MS-bar, full SM), user-confirmed 2026-10-26.
+   Huang & Zhou, arXiv:2009.04851, Tables 2, 3, 5, 6 (M_t = 173.1 GeV); y_f = Sqrt[2] m_f(M_t)/(246 GeV) as defined there.
+   lambda: 0.12607 for V = lambda (H^dag H)^2 there; the Mainz convention is V = (lambda/2)(H^dag H)^2 (beta_lambda contains
+   12 lambda^2), hence lambda = 2 x 0.12607. CKM: PDG 2024, Eq. (12.26), exact standard parametrisation, not run to M_t. *)
+$flavorRefInputs = <|
+   "Scale" -> "\[Mu] = M_t = 173.1 GeV (MS-bar, full SM)",
+   "gL" -> 0.64765, "gY" -> 0.358545, "gs" -> 1.1618, "lambda" -> 2 0.12607,
+   "mUp" -> {1.18*^-3, 0.594, 161.98}, "mDown" -> {2.56*^-3, 50.90*^-3, 2.702}, "mLep" -> {0.48583*^-3, 0.102347, 1.73850}, "vF" -> 246.,
+   "Wolfenstein" -> {0.22501, 0.826, 0.1591, 0.3523},
+   "Sources" -> {"Couplings and running masses at \[Mu] = M_t: Huang & Zhou, arXiv:2009.04851, Tables 2, 3, 5, 6 (y_f = \[Sqrt]2 m_f/246 GeV).",
+     "\[Lambda] in the Mainz convention V \[Superset] (\[Lambda]/2)(H\[Dagger]H)\.b2, i.e. twice the value 0.12607 quoted there.",
+     "CKM: PDG 2024, Eq. (12.26) (Wolfenstein \[Lambda] = 0.22501, A = 0.826, \[Rho]-bar = 0.1591, \[Eta]-bar = 0.3523), exact standard parametrisation, not run to M_t."}|>;
+
+(* exact standard parametrisation of the CKM matrix from the Wolfenstein parameters *)
+ckmMatrix[{lam_, A_, rhob_, etab_}] := Module[{s12 = lam, s23 = A lam^2, s13e, c12, c23, c13, s13, d},
+  s13e = A lam^3 (rhob + I etab) Sqrt[1 - A^2 lam^4]/(Sqrt[1 - lam^2] (1 - A^2 lam^4 (rhob + I etab)));
+  s13 = Abs[s13e]; d = Arg[s13e];
+  c12 = Sqrt[1 - s12^2]; c23 = Sqrt[1 - s23^2]; c13 = Sqrt[1 - s13^2];
+  {{c12 c13, s12 c13, s13 Exp[-I d]},
+   {-s12 c23 - c12 s23 s13 Exp[I d], c12 c23 - s12 s23 s13 Exp[I d], s23 c13},
+   {s12 s23 - c12 c23 s13 Exp[I d], -c12 s23 - s12 c23 s13 Exp[I d], c23 c13}}];
+
+(* the four Yukawa settings; matrices in the DsixTools convention (first index = left-handed doublet) *)
+$flavorCombos = {"FullUp", "FullDown", "Third", "TopGauge"};
+flavorYukawas[inp_Association, combo_String] := Module[{y = Sqrt[2.]/inp["vF"], yu, yd, ye, V = ckmMatrix[inp["Wolfenstein"]], z = ConstantArray[0., {3, 3}]},
+  yu = y inp["mUp"]; yd = y inp["mDown"]; ye = y inp["mLep"];
+  Switch[combo,
+   "FullUp", {DiagonalMatrix[yu], V . DiagonalMatrix[yd], DiagonalMatrix[ye]},
+   "FullDown", {ConjugateTranspose[V] . DiagonalMatrix[yu], DiagonalMatrix[yd], DiagonalMatrix[ye]},
+   "Third", {DiagonalMatrix[{0., 0., yu[[3]]}], DiagonalMatrix[{0., 0., yd[[3]]}], DiagonalMatrix[{0., 0., ye[[3]]}]},
+   "TopGauge", {DiagonalMatrix[{0., 0., yu[[3]]}], z, z}]];
+
+$flavorComboShort = <|"FullUp" -> "full, up basis", "FullDown" -> "full, down basis", "Third" -> "3rd generation", "TopGauge" -> "top + gauge"|>;
+$flavorComboText = <|"FullUp" -> "full Yukawas + CKM, up basis", "FullDown" -> "full Yukawas + CKM, down basis",
+   "Third" -> "third generation (y_t, y_b, y_\[Tau]), no CKM", "TopGauge" -> "top Yukawa + gauge + \[Lambda]"|>;
+
+(* DsixTools family name -> explorer operator ID (None: not shown) *)
+$dsixTildeMap = <|"CGtilde" -> "cGt", "CWtilde" -> "cWt", "CHGtilde" -> "cHGt", "CHWtilde" -> "cHWt", "CHBtilde" -> "cHBt", "CHWtildeB" -> "cHWtB"|>;
+dsixFamilyToOp[f_String] := With[{op = Lookup[$dsixTildeMap, f, "c" <> StringDrop[f, 1]]}, If[MemberQ[$operatorIDs, op], op, None]];
+
+parseDsixName[nm_String] := Module[{fam = First[StringSplit[nm, "["]], idx},
+  idx = If[StringContainsQ[nm, "["], ToExpression["{" <> StringTrim[StringDrop[StringDrop[nm, StringLength[fam] + 1], -1]] <> "}"], {}];
+  {fam, idx}];
+
+loadFlavorADMSource[admDir_String] := Block[{$Context = $flavorRawContext, $ContextPath = {"System`"}},
+  Get[FileNameJoin[{admDir, "SMEFT_ADM.wl"}]];
+  Symbol[$flavorRawContext <> "ADMLoad"][]];
+
+(* exact top+gauge entries: Yu = diag(0, 0, yt), Yd = Ye = 0. Returns <|{localRow, localCol} -> {{exponents of gL, gY, gs, lam, yt, Pi}, coefficient}..|>
+   for one loop order (coefficient exact, without the 1/(16 Pi^2)^L of the display normalisation) *)
+topGaugeExact[h_Integer, rowMap_Association, colMap_Association] := Module[
+  {L = flavorRaw["$admLoop"][h], nT, sid, keep, polyPtr = flavorRaw["$admPolyPtr"], polyC = flavorRaw["$admPolyC"], polyPi = flavorRaw["$admPolyPi"],
+   polyExp = flavorRaw["$admPolyExp"], cols = flavorRaw["$admMeta"]["exponent_columns"], monPtr = flavorRaw["$admMonPtr"], monCE = flavorRaw["$admMonCE"],
+   ceName = flavorRaw["$admCEname"], ceI = flavorRaw["$admCEi"], ceJ = flavorRaw["$admCEj"], ceNames = flavorRaw["$admCEnames"],
+   chainTok = flavorRaw["$admChainTokens"], traceTok = flavorRaw["$admTraceTokens"], sPoly = flavorRaw["$admStructPoly"], sMon = flavorRaw["$admStructMon"],
+   coefNum = flavorRaw["$admCoefNum"], coefDen = flavorRaw["$admCoefDen"], gL, gY, gs, lam, yt, m2, piS, vars, ytPow, traceVal, polyExpr, monVal, structExpr,
+   rows, colsT, coefs, structs, groups, res},
+  vars = {gL, gY, gs, lam, yt, piS};
+  (* a chain / trace of Yukawas is y_t^n in this approximation if it consists of Yu, Yu^dagger only (chain entry [3,3]) *)
+  ytPow[toks_] := If[AllTrue[toks, #[[1]] === "Yu" &], Length[toks], None];
+  traceVal[nm_String] := With[{p = ytPow[traceTok[nm]]}, If[p === None, 0, yt^p]];
+  polyExpr[p_] := polyExpr[p] = Module[{rng = Range[polyPtr[[p]] + 1, polyPtr[[p + 1]]], xs},
+     xs = Join[{gL, gY, gs, lam, m2}, traceVal /@ Drop[cols, 5]];
+     Expand[Total[Table[(polyC[[m, 1]]/polyC[[m, 2]] + I polyC[[m, 3]]/polyC[[m, 4]]) piS^polyPi[[m]] Times @@ MapThread[If[#2 == 0, 1, #1^#2] &, {xs, polyExp[[m]]}], {m, rng}]]]];
+  monVal[mo_] := monVal[mo] = Product[With[{e = monCE[[q]]}, With[{p = ytPow[chainTok[ceNames[[ceName[[e]]]]]]},
+       If[p === None || ceI[[e]] =!= 3 || ceJ[[e]] =!= 3, 0, yt^p]]], {q, monPtr[[mo]] + 1, monPtr[[mo + 1]]}];
+  structExpr[s_] := structExpr[s] = With[{mv = monVal[sMon[[s]]]}, If[mv === 0, 0, Expand[mv polyExpr[sPoly[[s]]]]]];
+  nT = Length[L["row"]];
+  sid = Flatten[MapThread[ConstantArray, {L["struct"], Differences[L["ptr"]]}]];
+  keep = Pick[Range[nT], MapThread[KeyExistsQ[rowMap, #1] && KeyExistsQ[colMap, #2] &, {L["row"], L["col"]}]];
+  (* structures that survive the approximation *)
+  With[{alive = Association[# -> (structExpr[#] =!= 0) & /@ DeleteDuplicates[sid[[keep]]]]},
+   keep = Select[keep, alive[sid[[#]]] &]];
+  rows = L["row"][[keep]]; colsT = L["col"][[keep]]; structs = sid[[keep]];
+  coefs = coefNum[[L["coef"][[keep]]]]/coefDen[[L["coef"][[keep]]]];
+  groups = GroupBy[Transpose[{rows, colsT, structs, coefs}], (#[[1 ;; 2]] &) -> (#[[3 ;; 4]] &)];
+  res = Association[KeyValueMap[
+     Function[{rc, lst}, Module[{ex = Expand[Total[Function[{s, c}, c structExpr[s]] @@@ lst]]},
+       If[! FreeQ[ex, m2], Message[BuildFlavorADMData::m2, rc]];
+       If[ex === 0, Nothing, {rowMap[rc[[1]]], colMap[rc[[2]]]} -> (List @@@ CoefficientRules[ex, vars])]]],
+     groups]];
+  res];
+
+(* entries below this absolute size (in the display normalisation) are not stored: they are irrelevant for size estimates
+   and would triple the file (the full-Yukawa matrices reach down to 10^-60 through the electron Yukawa) *)
+$flavorCutoff = 10.^-14;
+flavorCut[m_SparseArray, c_] := Module[{p = m["NonzeroPositions"], v = m["NonzeroValues"], k},
+  k = Flatten[Position[Abs[v], x_ /; x >= c, {1}, Heads -> False]];
+  SparseArray[p[[k]] -> v[[k]], Dimensions[m]]];
+
+BuildFlavorADMData::m2 = "Entry `1` depends on m2 (unexpected for the ADM).";
+BuildFlavorADMData::cmp = "Top+gauge exact entries and the numerical matrix differ (max. relative deviation `1`).";
+
+Options[BuildFlavorADMData] = {"Verbose" -> True};
+BuildFlavorADMData[admDir_String, outFile_ : None, OptionsPattern[]] := Module[
+  {verbose = TrueQ[OptionValue["Verbose"]], meta, names, conj, nAll, parsed, rowsG, colsG, rowInfo, colInfo, rowMap, colMap, inp = $flavorRefInputs,
+   mats = <||>, exact = <||>, pairMax = <||>, nf = <|1 -> 1/(16 Pi^2), 2 -> 1/(16 Pi^2)^2|>, pt, t0, rowOp, colOp, data, cmp},
+  t0 = AbsoluteTime[];
+  loadFlavorADMSource[admDir];
+  meta = flavorRaw["$admMeta"]; names = meta["names"]; conj = meta["conj"]; nAll = Length[names];
+  parsed = parseDsixName /@ names;
+  rowsG = Select[Range[nAll], conj[[#]] == 0 && dsixFamilyToOp[parsed[[#, 1]]] =!= None &];
+  colsG = Select[Range[nAll], dsixFamilyToOp[parsed[[#, 1]]] =!= None &];
+  rowMap = AssociationThread[rowsG, Range[Length[rowsG]]];
+  colMap = AssociationThread[colsG, Range[Length[colsG]]];
+  rowInfo = <|"Op" -> dsixFamilyToOp[parsed[[#, 1]]], "Idx" -> parsed[[#, 2]], "Name" -> names[[#]]|> & /@ rowsG;
+  colInfo = <|"Op" -> dsixFamilyToOp[parsed[[#, 1]]], "Idx" -> parsed[[#, 2]], "Conj" -> (conj[[#]] == 1), "Name" -> names[[#]]|> & /@ colsG;
+  rowOp = rowInfo[[All, "Op"]]; colOp = colInfo[[All, "Op"]];
+  If[verbose, Print["flavour ADM: ", Length[rowsG], " rows (C entries), ", Length[colsG], " columns (C and C*), ", Round[AbsoluteTime[] - t0, 0.1], " s"]];
+  Do[
+   pt = flavorRaw["ADMPoint"] @@ Join[{inp["gL"], inp["gY"], inp["gs"], inp["lambda"], 0.}, flavorYukawas[inp, combo]];
+   mats[combo] = Association[Table[h -> flavorCut[SparseArray[N[nf[h]] flavorRaw["ADMMatrix"][h, pt][[rowsG, colsG]]], $flavorCutoff], {h, 1, 2}]];
+   If[verbose, Print["  ", combo, ": nonzero 1L ", Length[mats[combo][1]["NonzeroValues"]], ", 2L ", Length[mats[combo][2]["NonzeroValues"]], ", ", Round[AbsoluteTime[] - t0, 0.1], " s"]],
+   {combo, $flavorCombos}];
+  (* exact entries in the top+gauge approximation, and their check against the numerical matrix *)
+  Do[exact[h] = topGaugeExact[h, rowMap, colMap];
+   If[verbose, Print["  exact top+gauge entries ", h, "L: ", Length[exact[h]], ", ", Round[AbsoluteTime[] - t0, 0.1], " s"]], {h, 1, 2}];
+  cmp = Max[Table[Module[{num = mats["TopGauge"][h], ex = exact[h], pos, vals, dev},
+      pos = Union[Keys[ex], num["NonzeroPositions"]];
+      vals = Function[rc, N[nf[h]] flavorExactValue[Lookup[ex, Key[rc], {}], inp]] /@ pos;
+      dev = MapThread[Abs[#1 - #2]/Max[Abs[#1], Abs[#2], 10.^-300] &, {vals, Extract[num, pos]}];
+      Max[Append[dev, 0.]]], {h, 1, 2}]];
+  If[cmp > 10.^-10, Message[BuildFlavorADMData::cmp, cmp]];
+  (* largest entry of every family block: {source op, target op} -> {|value|, local row, local col} *)
+  Do[pairMax[combo] = Association[Table[sel -> flavorPairMax[mats[combo], sel, rowOp, colOp], {sel, {"1L", "2L", "Sum"}}]], {combo, $flavorCombos}];
+  data = <|"Meta" -> <|"BuildDate" -> DateString[], "InputHash" -> meta["inputHash"], "Inputs" -> inp, "TopGaugeCheck" -> cmp, "Cutoff" -> $flavorCutoff,
+      "Normalization" -> "entries: gamma^(1)/(16 Pi^2) and gamma^(2)/(16 Pi^2)^2 (contribution of C_b to dC_a/dln mu)"|>,
+    "Rows" -> rowInfo, "Cols" -> colInfo,
+    "RowsOf" -> Association[# -> Flatten[Position[rowOp, #]] & /@ $operatorIDs],
+    "ColsOf" -> Association[# -> Flatten[Position[colOp, #]] & /@ $operatorIDs],
+    "Matrices" -> mats, "TopGaugeExact" -> exact, "PairMax" -> pairMax|>;
+  If[outFile =!= None,
+   Module[{stream = OpenWrite[outFile, BinaryFormat -> True]},
+    BinaryWrite[stream, Normal[BinarySerialize[data, PerformanceGoal -> "Size"]]];
+    Close[stream]];
+   If[verbose, Print["Wrote ", outFile, " (", ToString[NumberForm[FileByteCount[outFile]/10.^6, {4, 2}]], " MB), top+gauge check: max. relative deviation ", cmp, ", ", Round[AbsoluteTime[] - t0, 0.1], " s"]]];
+  data];
+
+(* value of an exact top+gauge entry (list of {exponents, coefficient}) at the reference inputs (without the loop normalisation) *)
+flavorExactValue[rules_List, inp_Association] := With[{x = N[{inp["gL"], inp["gY"], inp["gs"], inp["lambda"], Sqrt[2.] inp["mUp"][[3]]/inp["vF"], Pi}]},
+  Total[Append[N[#[[2]]] Times @@ (x^#[[1]]) & /@ rules, 0.]]];
+
+(* largest |entry| per (source op, target op) block; sel: "1L", "2L" or "Sum" *)
+flavorPairMax[m_Association, sel_String, rowOp_List, colOp_List] := Module[{M = Switch[sel, "1L", m[1], "2L", m[2], _, m[1] + m[2]], pos, vals, grp},
+  pos = M["NonzeroPositions"]; vals = Abs[M["NonzeroValues"]];
+  If[pos === {}, Return[<||>]];
+  grp = GroupBy[Transpose[{colOp[[pos[[All, 2]]]], rowOp[[pos[[All, 1]]]], vals, pos}], (#[[1 ;; 2]] &)];
+  Map[With[{best = First[MaximalBy[#, #[[3]] &]]}, {best[[3]], best[[4, 1]], best[[4, 2]]}] &, grp]];
+
+$flavorData = None;
+$loadedFlavorFile = None;
+$defaultFlavorFile := FileNameJoin[{If[$SMEFTADMExplorerDirectory === None, Directory[], $SMEFTADMExplorerDirectory], "FlavorADMData.wxf"}];
+
+LoadFlavorADMData[file_String] := If[FileExistsQ[file], BinaryDeserialize[ReadByteArray[file]], None];
+
+(* ================================================================================================
+   13. Explicit flavour: labels, numbers, block panel, weighted family graph, focus view
+   ================================================================================================ *)
+
+$flavorComboMenu = {"FullUp" -> "full Yukawas, up basis", "FullDown" -> "full Yukawas, down basis", "Third" -> "3rd generation only", "TopGauge" -> "top Yukawa + gauge"};
+$flavorLoopMenu = {"1L" -> "1-loop", "2L" -> "2-loop", "Sum" -> "1L + 2L"};
+
+flavorIdxString[idx_List] := StringJoin[ToString /@ idx];
+
+(* C_{Hq}^{(||)13}, with * for a conjugate column *)
+flavorLabelBoxes[op_String, idx_List, conj_ : False] := Module[{s = $opSpec[op], c = StyleBox["C", FontSlant -> "Italic"], sup},
+  sup = Join[If[s[[4]] === None, {}, {supBox[s[[4]]]}], If[idx === {}, {}, {flavorIdxString[idx]}], If[TrueQ[conj], {"*"}, {}]];
+  If[sup === {}, SubscriptBox[c, subBox[s[[3]]]], SubsuperscriptBox[c, subBox[s[[3]]], If[Length[sup] === 1, First[sup], RowBox[sup]]]]];
+flavorLabel[op_String, idx_List, conj_ : False, size_ : 13] := Style[RawBoxes[flavorLabelBoxes[op, idx, conj]], FontFamily -> "Times", FontSize -> size];
+flavorLabelTeX[op_String, idx_List, conj_ : False] := Module[{s = $opSpec[op], sup},
+  sup = StringJoin[supTeX[s[[4]]], flavorIdxString[idx], If[TrueQ[conj], "*", ""]];
+  "C_{" <> subTeX[s[[3]]] <> "}" <> If[sup === "", "", "^{" <> sup <> "}"]];
+
+flavorRowLabel[fd_, r_Integer, size_ : 13] := flavorLabel[fd["Rows"][[r, "Op"]], fd["Rows"][[r, "Idx"]], False, size];
+flavorColLabel[fd_, c_Integer, size_ : 13] := flavorLabel[fd["Cols"][[c, "Op"]], fd["Cols"][[c, "Idx"]], fd["Cols"][[c, "Conj"]], size];
+
+(* numbers: 3 significant digits, scientific notation outside 0.01 .. 100 *)
+fmtReal[x_?NumericQ] := Module[{e, m},
+  Which[x == 0, "0",
+   10.^-2 <= Abs[x] < 100., ToString[NumberForm[N[x], 3]],
+   True, e = Floor[Log10[Abs[x]]]; m = N[x]/10.^e;
+   If[Abs[Round[m, 0.01]] >= 10., m = m/10; e = e + 1];
+   Row[{ToString[NumberForm[m, {3, 2}]], "\[Times]", Superscript[10, e]}]]];
+fmtComplex[z_?NumericQ] := Which[
+  z == 0, "0",
+  Abs[Im[z]] <= 10.^-6 Abs[z], fmtReal[Re[z]],
+  Abs[Re[z]] <= 10.^-6 Abs[z], Row[{fmtReal[Im[z]], " i"}],
+  True, Row[{fmtReal[Re[z]], If[Im[z] < 0, " \[Minus] ", " + "], fmtReal[Abs[Im[z]]], " i"}]];
+
+$flavorSumCache = <||>;
+flavorMatrix[fd_, combo_String, sel_String] := Switch[sel,
+  "1L", fd["Matrices", combo, 1], "2L", fd["Matrices", combo, 2],
+  _, If[KeyExistsQ[$flavorSumCache, {fd["Meta", "BuildDate"], combo}], $flavorSumCache[{fd["Meta", "BuildDate"], combo}],
+   $flavorSumCache[{fd["Meta", "BuildDate"], combo}] = fd["Matrices", combo, 1] + fd["Matrices", combo, 2]]];
+
+flavorValues[fd_, combo_String, r_Integer, c_Integer] := With[{v1 = fd["Matrices", combo, 1][[r, c]], v2 = fd["Matrices", combo, 2][[r, c]]}, {v1, v2, v1 + v2}];
+selValue[{v1_, v2_, vs_}, sel_String] := Switch[sel, "1L", v1, "2L", v2, _, vs];
+
+(* nonzero entries of the block source family -> target family: {row, col, v1L, v2L, sum} *)
+flavorBlockEntries[fd_, combo_String, src_String, tgt_String] := Module[{rows = fd["RowsOf"][tgt], cols = fd["ColsOf"][src], m1, m2, nz},
+  If[rows === {} || cols === {}, Return[{}]];
+  m1 = fd["Matrices", combo, 1][[rows, cols]]; m2 = fd["Matrices", combo, 2][[rows, cols]];
+  nz = Union[m1["NonzeroPositions"], m2["NonzeroPositions"]];
+  ({rows[[#[[1]]]], cols[[#[[2]]]], m1[[#[[1]], #[[2]]]], m2[[#[[1]], #[[2]]]], m1[[#[[1]], #[[2]]]] + m2[[#[[1]], #[[2]]]]} &) /@ nz];
+
+(* ---- exact top+gauge expressions ---- *)
+MakeBoxes[flavGL, TraditionalForm] := SubscriptBox[StyleBox["g", FontSlant -> "Italic"], StyleBox["L", FontSlant -> "Italic"]];
+MakeBoxes[flavGY, TraditionalForm] := SubscriptBox[StyleBox["g", FontSlant -> "Italic"], StyleBox["Y", FontSlant -> "Italic"]];
+MakeBoxes[flavGS, TraditionalForm] := SubscriptBox[StyleBox["g", FontSlant -> "Italic"], StyleBox["s", FontSlant -> "Italic"]];
+MakeBoxes[flavLam, TraditionalForm] := StyleBox["\[Lambda]", FontSlant -> "Italic"];
+MakeBoxes[flavYt, TraditionalForm] := SubscriptBox[StyleBox["y", FontSlant -> "Italic"], StyleBox["t", FontSlant -> "Italic"]];
+exactExpr[rules_List] := Total[Append[#[[2]] Times @@ ({flavGL, flavGY, flavGS, flavLam, flavYt, Pi}^#[[1]]) & /@ rules, 0]];
+exactInputString[rules_List] := StringReplace[Block[{$ContextPath = Prepend[$ContextPath, "SMEFTADMExplorer`Private`"], $Context = "SMEFTADMExplorer`Private`"},
+    ToString[exactExpr[rules], InputForm]], {"flavGL" -> "gL", "flavGY" -> "gY", "flavGS" -> "gs", "flavLam" -> "lambda", "flavYt" -> "yt"}];
+
+exactEntryBlock[fd_, r_Integer, c_Integer] := Module[{blocks},
+  blocks = Table[With[{rules = Lookup[fd["TopGaugeExact"][L], Key[{r, c}], {}]},
+     If[rules === {}, Nothing,
+      With[{ex = exactExpr[rules]},
+       Column[{
+         Pane[Style[RawBoxes[RowBox[{loopPrefactorBox[L], "\[ThinSpace]", "(", ToBoxes[ex, TraditionalForm], ")"}]], SingleLetterItalics -> False, FontSize -> 13], $entryWidth],
+         Row[{Button["Copy LaTeX", CopyToClipboard[loopPrefactorTeX[L] <> "\\left(" <> ToString[TeXForm[ex]] <> "\\right)"], ImageSize -> {110, 24}], "  ",
+           Button["Copy InputForm", CopyToClipboard[exactInputString[rules]], ImageSize -> {120, 24}]}]}, Left, 0.4]]]], {L, {1, 2}}];
+  If[blocks === {}, Style["zero in the top + gauge approximation", Gray, 11, FontFamily -> $uiFont], Column[blocks, Left, 0.8]]];
+
+(* detail of one element of the flavoured ADM: numbers in all four approximations and the exact top+gauge expression *)
+flavorElementDetail[fd_, r_Integer, c_Integer, combo_String] := Module[{vals = Association[# -> flavorValues[fd, #, r, c] & /@ $flavorCombos], rules},
+  rules = unverifiedRulesFor[fd["Cols"][[c, "Op"]], fd["Rows"][[r, "Op"]]];
+  Column[{
+    Row[{flavorColLabel[fd, c, 17], Style["  \[RightArrow]  ", 16], flavorRowLabel[fd, r, 17]}],
+    Style["contribution of the source coefficient to dC/dln\[Mu] of the target, per unit source coefficient", 10, Gray, FontFamily -> $uiFont],
+    Grid[Prepend[
+      Table[{Style[$flavorComboShort[cb], 10, FontFamily -> $uiFont, If[cb === combo, Bold, Plain]],
+        Sequence @@ (Style[fmtComplex[#], 11, If[cb === combo, Bold, Plain]] & /@ vals[cb])}, {cb, $flavorCombos}],
+      Style[#, Bold, 10, FontFamily -> $uiFont] & /@ {"", Row[{Superscript["\[Gamma]", "(1)"], "/16\[Pi]\.b2"}], Row[{Superscript["\[Gamma]", "(2)"], "/(16\[Pi]\.b2)\.b2"}], "sum"}],
+     Alignment -> {{Left, Right, Right, Right}}, Spacings -> {0.8, 0.45}, Dividers -> {None, {2 -> GrayLevel[0.7]}}],
+    If[rules =!= {} && vals[combo][[2]] != 0,
+     Row[{warnIcon[14], Style["  two-loop part not cross-checked (\[Gamma]5 reading point, " <> StringRiffle[#["Figures"] & /@ rules, ", "] <> ")", Bold, 11, $warnDark, FontFamily -> $uiFont]}], Nothing],
+    Style["Exact, top Yukawa + gauge approximation", Bold, 12, FontFamily -> $uiFont],
+    exactEntryBlock[fd, r, c]}, Left, 0.7]];
+
+(* colour of a heat-map cell: log scale over 'decades' decades below the block maximum *)
+$heatColors = {RGBColor["#EAF2FA"], RGBColor["#6BAED6"], RGBColor["#08306B"]};
+heatColor[v_, vmax_, decades_ : 8] := If[v == 0, White,
+   Blend[$heatColors, Clip[(Log10[Abs[v]] - Log10[vmax] + decades)/decades, {0, 1}]]];
+
+flavorHeatMap[fd_, rows_List, cols_List, entries_List, sel_String, onSelect_, current_] := Module[{val = <||>, vmax, cell, colLab, rowLab},
+  Scan[(val[{#[[1]], #[[2]]}] = selValue[#[[3 ;; 5]], sel]) &, entries];
+  vmax = Max[Append[Abs[Values[val]], 10.^-300]];
+  colLab[c_] := Style[RawBoxes[RowBox[{flavorIdxString[fd["Cols"][[c, "Idx"]]], If[fd["Cols"][[c, "Conj"]], "*", ""]}]], 9, FontFamily -> $uiFont];
+  rowLab[r_] := Style[flavorIdxString[fd["Rows"][[r, "Idx"]]], 9, FontFamily -> $uiFont];
+  cell[r_, c_] := With[{v = Lookup[val, Key[{r, c}], 0], rr = r, cc = c, h = onSelect},
+    EventHandler[
+     Tooltip[
+      Graphics[{FaceForm[heatColor[v, vmax]], EdgeForm[If[current === {r, c}, {AbsoluteThickness[2], RGBColor["#E65100"]}, {AbsoluteThickness[0.5], GrayLevel[0.8]}]],
+        Rectangle[{0, 0}, {1, 1}]}, ImageSize -> {17, 17}, PlotRangePadding -> 0.04],
+      Column[{Row[{flavorColLabel[fd, c], "  \[RightArrow]  ", flavorRowLabel[fd, r]}], If[v == 0, "0 (or below the stored cut-off)", fmtComplex[v]]}]],
+     {"MouseClicked" :> h[rr, cc]}]];
+  Column[{
+    Grid[Prepend[Table[Prepend[Table[cell[r, c], {c, cols}], rowLab[r]], {r, rows}], Prepend[colLab /@ cols, Style["\[DownArrow] tgt  src \[RightArrow]", 8, Gray]]],
+     Spacings -> {0.05, 0.05}, Alignment -> {Center, Center}],
+    Row[{Style["colour: log|entry| over 8 decades below the largest, ", 9, Gray, FontFamily -> $uiFont], Style[fmtReal[vmax], 9, Gray]}]}, Left, 0.4]];
+
+flavorRankTable[fd_, entries_List, sel_String, filter_String, showAll_, onSelect_, current_] := Module[{es = entries, shown, n},
+  If[StringTrim[filter] =!= "",
+   es = Select[es, StringContainsQ[flavorIdxString[fd["Rows"][[#[[1]], "Idx"]]] <> " " <> flavorIdxString[fd["Cols"][[#[[2]], "Idx"]]], StringTrim[filter]] &]];
+  es = ReverseSortBy[es, Abs[selValue[#[[3 ;; 5]], sel]] &];
+  n = Length[es];
+  shown = If[TrueQ[showAll], Take[es, UpTo[300]], Take[es, UpTo[25]]];
+  Column[{
+    Grid[Prepend[
+      Table[With[{e = e0, h = onSelect, isCur = (current === e0[[1 ;; 2]])},
+        EventHandler[#, {"MouseClicked" :> h[e[[1]], e[[2]]]}] & /@ {
+          Style[flavorColLabel[fd, e[[2]], 12], If[isCur, Background -> RGBColor["#FFE0B2"], Background -> None]],
+          flavorRowLabel[fd, e[[1]], 12],
+          Style[fmtComplex[e[[3]]], 10], Style[fmtComplex[e[[4]]], 10], Style[fmtComplex[e[[5]]], 10, Bold]}], {e0, shown}],
+      Style[#, Bold, 10, FontFamily -> $uiFont] & /@ {"source", "target", "1L", "2L", "sum"}],
+     Alignment -> {{Left, Left, Right, Right, Right}}, Spacings -> {0.7, 0.3}, Dividers -> {None, {2 -> GrayLevel[0.7]}}],
+    Style[ToString[Length[shown]] <> " of " <> ToString[n] <> " entries, ordered by |" <> (sel /. $flavorLoopMenu) <> "|" <> If[n > Length[shown] && ! TrueQ[showAll], "; tick \"all\" for more", ""], 9, Gray, FontFamily -> $uiFont]}, Left, 0.4]];
+
+(* the "Explicit flavour" tab for a family arrow src -> tgt *)
+flavorBlockPanel[fd_, src_String, tgt_String, combo_String, sel_String, filter_String, showAll_, onSelect_, current_] := Module[
+  {rows = fd["RowsOf"][tgt], cols = fd["ColsOf"][src], entries, rules = unverifiedRulesFor[src, tgt], cur},
+  entries = flavorBlockEntries[fd, combo, src, tgt];
+  cols = Select[cols, MemberQ[entries[[All, 2]], #] &] /. {} -> fd["ColsOf"][src];
+  cur = If[ListQ[current] && MemberQ[entries[[All, 1 ;; 2]], current], current, None];
+  Column[{
+    Row[{opLabel[$explorerData, src, 18], Style["   \[RightArrow]   ", 18], opLabel[$explorerData, tgt, 18]}],
+    Style["explicit flavour at " <> fd["Meta", "Inputs", "Scale"] <> "; " <> $flavorComboText[combo] <> ". " <> ToString[Length[entries]] <> " nonzero elements (" <>
+      ToString[Length[rows]] <> " target \[Times] " <> ToString[Length[fd["ColsOf"][src]]] <> " source components, C and C*).", 11, GrayLevel[0.35], FontFamily -> $uiFont],
+    If[rules =!= {}, Row[{warnIcon[14], Style["  the two-loop parts are not cross-checked (\[Gamma]5 reading point)", Bold, 11, $warnDark, FontFamily -> $uiFont]}], Nothing],
+    Which[
+     entries === {}, Style["All elements vanish in this approximation (or are below the stored cut-off 10^-14).", 12, FontFamily -> $uiFont],
+     Length[rows] <= 9 && Length[cols] <= 18, flavorHeatMap[fd, rows, cols, entries, sel, onSelect, cur],
+     True, flavorRankTable[fd, entries, sel, filter, showAll, onSelect, cur]],
+    If[cur === None, Style["Click an element for its values and its exact top + gauge expression.", Gray, 11, FontFamily -> $uiFont],
+     Framed[flavorElementDetail[fd, cur[[1]], cur[[2]], combo], FrameStyle -> GrayLevel[0.8], FrameMargins -> 6, RoundingRadius -> 4]]}, Left, 0.9]];
+
+(* ---- weighted family graph: thickness by the largest flavoured element of each block ---- *)
+(* thickness between the threshold (10^lthr) and the largest value (10^lmax); quadratic in log, so that the few large elements stand out *)
+flavorThickness[v_, lthr_, lmax_] := 0.6 + 4.6 Clip[(Log10[v] - lthr)/Max[lmax - lthr, 10.^-9], {0, 1}]^2;
+weightFamilyEdges[graph_Association, fd_, combo_String, sel_String, thr_?NumericQ] := Module[{pm = fd["PairMax", combo, sel], vals, lmax, lthr = Log10[thr]},
+  vals = Lookup[pm, Key[{#["From"], #["To"]}], {0., 0, 0}] & /@ graph["Edges"];
+  lmax = Max[Append[Log10[Select[vals[[All, 1]], # > 0 &]], lthr + 1.]];
+  Append[graph, "Edges" -> MapThread[
+     Function[{e, v}, Join[e, <|"Faded" -> (v[[1]] < thr), "Thick" -> If[v[[1]] < thr, 1., flavorThickness[v[[1]], lthr, lmax]],
+        "FlavorMax" -> v, "Combo" -> combo, "Sel" -> sel|>]], {graph["Edges"], vals}]]];
+
+flavorMaxLine[e_Association] := With[{fd = $flavorData, v = e["FlavorMax"]},
+  If[! AssociationQ[fd] || ! ListQ[v], Nothing,
+   If[v[[1]] == 0, Style["no flavoured element in the approximation \"" <> $flavorComboText[e["Combo"]] <> "\"", 11, FontFamily -> $uiFont],
+    Row[{Style["largest flavoured element (" <> (e["Sel"] /. $flavorLoopMenu) <> ", " <> $flavorComboText[e["Combo"]] <> "): ", 11, FontFamily -> $uiFont],
+      flavorColLabel[fd, v[[3]], 12], " \[RightArrow] ", flavorRowLabel[fd, v[[2]], 12], ":  ", Style[fmtComplex[selValue[flavorValues[fd, e["Combo"], v[[2]], v[[3]]], e["Sel"]]], 11, Bold]}]]]];
+
+(* ---- focus view: one flavoured coefficient and its strongest partners ---- *)
+flavorID[op_String, idx_List] := If[idx === {}, op <> "[]", op <> "[" <> StringRiffle[ToString /@ idx, ","] <> "]"];
+parseFlavorID[id_String] := With[{p = StringSplit[id, "["]}, {p[[1]], If[StringLength[p[[2]]] <= 1, {}, ToExpression["{" <> StringDrop[p[[2]], -1] <> "}"]]}];
+
+flavorRowOf[fd_, op_String, idx_List] := First[Select[fd["RowsOf"][op], fd["Rows"][[#, "Idx"]] === idx &], None];
+flavorColsOfCoeff[fd_, op_String, idx_List] := Select[fd["ColsOf"][op], fd["Cols"][[#, "Idx"]] === idx &];
+
+(* default component of an operator: the third-generation one if it exists *)
+defaultFlavorIdx[fd_, op_String] := Module[{idxs = fd["Rows"][[fd["RowsOf"][op], "Idx"]]},
+  SelectFirst[idxs, AllTrue[#, # === 3 &] &, Last[idxs]]];
+flavorIdxChoices[fd_, op_String] := fd["Rows"][[fd["RowsOf"][op], "Idx"]];
+
+$flavorNodeSize = {78., 28.};
+
+flavorFocusGraph[fd_, op_String, idx0_List, dir_String, combo_String, sel_String, K_Integer, thr_?NumericQ] := Module[
+  {idx = If[MemberQ[flavorIdxChoices[fd, op], idx0], idx0, defaultFlavorIdx[fd, op]], a, ccols, M = flavorMatrix[fd, combo, sel], M1 = fd["Matrices", combo, 1], M2 = fd["Matrices", combo, 2],
+   outgoing = (dir === "Outgoing"), parts, groups, center, partners, vmax, lthr = Log10[thr], edges, verts, labels, nodeOp, selfParts, selfVal},
+  a = flavorRowOf[fd, op, idx]; ccols = flavorColsOfCoeff[fd, op, idx];
+  center = flavorID[op, idx];
+  (* elements {row, col} that connect the centre with a partner coefficient *)
+  parts = If[outgoing,
+    Flatten[Table[{#, c} & /@ Union[M1[[All, c]]["NonzeroPositions"][[All, 1]], M2[[All, c]]["NonzeroPositions"][[All, 1]]], {c, ccols}], 1],
+    {a, #} & /@ Union[M1[[a]]["NonzeroPositions"][[All, 1]], M2[[a]]["NonzeroPositions"][[All, 1]]]];
+  (* group by partner coefficient (C and C* columns belong to the same coefficient) *)
+  groups = GroupBy[parts, If[outgoing, flavorID[fd["Rows"][[#[[1]], "Op"]], fd["Rows"][[#[[1]], "Idx"]]], flavorID[fd["Cols"][[#[[2]], "Op"]], fd["Cols"][[#[[2]], "Idx"]]]] &];
+  selfParts = Lookup[groups, center, {}];
+  selfVal = If[selfParts === {}, 0., MaximalBy[selValue[flavorValues[fd, combo, #[[1]], #[[2]]], sel] & /@ selfParts, Abs][[1]]];
+  KeyDropFrom[groups, center];
+  partners = KeyValueMap[Function[{id, ps}, With[{vs = flavorValues[fd, combo, #[[1]], #[[2]]] & /@ ps},
+       <|"ID" -> id, "Parts" -> ps, "Max" -> Max[Abs[selValue[#, sel]] & /@ vs], "L1" -> AnyTrue[vs, #[[1]] != 0 &], "L2" -> AnyTrue[vs, #[[2]] != 0 &]|>]], groups];
+  partners = Take[ReverseSortBy[Select[partners, #["Max"] >= thr &], #["Max"] &], UpTo[K]];
+  vmax = Max[Append[partners[[All, "Max"]], 10. thr]];
+  verts = Prepend[partners[[All, "ID"]], center];
+  nodeOp = Association[# -> parseFlavorID[#][[1]] & /@ verts];
+  labels = Association[# -> RawBoxes[flavorLabelBoxes @@ parseFlavorID[#]] & /@ verts];
+  edges = Function[p, With[{fromID = If[outgoing, center, p["ID"]], toID = If[outgoing, p["ID"], center]},
+       <|"From" -> fromID, "To" -> toID, "FromID" -> fromID, "ToID" -> toID, "FromOp" -> nodeOp[fromID], "ToOp" -> nodeOp[toID],
+        "L1" -> p["L1"], "L2" -> p["L2"], "Hop" -> 1, "Color" -> If[p["L1"], "Red", "Green"], "Flavor" -> True, "Parts" -> p["Parts"], "Max" -> p["Max"],
+        "Thick" -> flavorThickness[p["Max"], lthr, Log10[vmax]], "Combo" -> combo, "Sel" -> sel|>]] /@ partners;
+  <|"Center" -> center, "Direction" -> dir, "Mode" -> "Flavour", "Vertices" -> verts, "Depth" -> Association[# -> If[# === center, 0, 1] & /@ verts],
+   "Tree" -> False, "NodeOp" -> nodeOp, "Labels" -> labels, "NodeSize" -> $flavorNodeSize, "Parent" -> <||>, "Copies" -> <||>, "Open" -> All, "BranchCount" -> <||>,
+   "FirstRing" -> Rest[verts], "Edges" -> edges, "NewEndpoints" -> {}, "NRed" -> Count[edges, e_ /; e["Color"] === "Red"], "NGreen" -> Count[edges, e_ /; e["Color"] === "Green"],
+   "Self" -> None, "SelfValue" -> selfVal, "SelfParts" -> selfParts,
+   "NPartners" -> Length[groups], "CenterOp" -> op, "CenterIdx" -> idx, "Combo" -> combo, "Sel" -> sel, "Threshold" -> thr|>];
+
+flavorEdgeTooltip[e_Association] := With[{fd = $flavorData},
+  Framed[Column[Join[{
+      Row[{flavorLabel @@ parseFlavorID[e["From"]], Style["  \[RightArrow]  ", 14], flavorLabel @@ parseFlavorID[e["To"]]}],
+      Style[$flavorComboText[e["Combo"]] <> ", " <> (e["Sel"] /. $flavorLoopMenu) <> ":", 11, FontFamily -> $uiFont]},
+     Table[Row[{"  via ", flavorColLabel[fd, p[[2]], 12], ":  ", Style[fmtComplex[selValue[flavorValues[fd, e["Combo"], p[[1]], p[[2]]], e["Sel"]]], 11, Bold]}], {p, e["Parts"]}],
+     {Style["click for the values in all approximations and the exact top + gauge expression", Gray, 10, FontFamily -> $uiFont]}], Left, 0.35],
+   FrameStyle -> GrayLevel[0.7], Background -> White, FrameMargins -> 6]];
+
+(* the "Explicit flavour" tab for a selected arrow of the focus view: one detail per element (C and C* columns) *)
+flavorEdgePanel[fd_, graph_Association, key_List, combo_String] := Module[{e = SelectFirst[graph["Edges"], {#["From"], #["To"], #["Hop"]} === key &, None]},
+  If[e === None, Return[Style["Click an arrow to show its flavoured elements here.", Gray, 13, FontFamily -> $uiFont]]];
+  Column[Riffle[flavorElementDetail[fd, #[[1]], #[[2]], combo] & /@ e["Parts"], Spacer[{1, 14}]], Left, 1.]];
+
+flavorRefPointPanel[fd_] := With[{inp = fd["Meta", "Inputs"]}, Column[{
+    Style[inp["Scale"], 11, FontFamily -> $uiFont],
+    Grid[{
+      {"\!\(\*SubscriptBox[\(g\), \(L\)]\)", inp["gL"], "\!\(\*SubscriptBox[\(g\), \(Y\)]\)", inp["gY"]},
+      {"\!\(\*SubscriptBox[\(g\), \(s\)]\)", inp["gs"], "\[Lambda]", inp["lambda"]},
+      {"\!\(\*SubscriptBox[\(m\), \(t\)]\)", inp["mUp"][[3]], "\!\(\*SubscriptBox[\(m\), \(b\)]\)", inp["mDown"][[3]]},
+      {"\!\(\*SubscriptBox[\(m\), \(c\)]\)", inp["mUp"][[2]], "\!\(\*SubscriptBox[\(m\), \(\[Tau]\)]\)", inp["mLep"][[3]]}}, Alignment -> Left, Spacings -> {0.6, 0.2}, BaseStyle -> {10, FontFamily -> $uiFont}],
+    Pane[Style[StringRiffle[inp["Sources"], "\n"], 9, GrayLevel[0.35], FontFamily -> $uiFont], 255],
+    Pane[Style[Row[{"Masses in GeV. Elements below ", fmtReal[fd["Meta", "Cutoff"]], " are not stored. The numbers are rough size estimates at one scale (no running of the SM inputs)."}], 9, GrayLevel[0.35], FontFamily -> $uiFont], 255]}, Left, 0.5]];
 
 End[];
 EndPackage[];

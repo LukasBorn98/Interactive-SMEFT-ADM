@@ -7,6 +7,8 @@ SetDirectory[root];
 Get["SMEFTADMExplorer.m"];
 
 data = BuildADMData["Input files/SMEFT_beta_functions.m", "ADMData.wxf"];
+(* explicit flavour at mu = M_t (needs Input files/ADM; about 80 s) *)
+flavor = If[DirectoryQ["Input files/ADM"], BuildFlavorADMData["Input files/ADM", "FlavorADMData.wxf"], LoadFlavorADMData["FlavorADMData.wxf"]];
 
 (* notebook that loads SMEFTADMExplorer.m and ADMData.wxf from its own folder *)
 MakeExplorerNotebook["SMEFT_ADM_Explorer.nb", "EmbedData" -> False, "StartOperator" -> "cH"];
@@ -29,5 +31,16 @@ UsingFrontEnd[
  (* the same for an entry whose two-loop part is not cross-checked (Table 3 of the paper) *)
  SMEFTADMExplorer`Private`$explorerData = data;
  Export[FileNameJoin["snapshots", "entry_panel_cuG_to_cHGt_unchecked.png"],
-  Rasterize[Panel[SMEFTADMExplorer`Private`entryPanel[data, ExplorerGraphData[data, "cuG", "Outgoing", "Direct"], {"cuG", "cHGt", 1}, False], ImageSize -> 440], ImageResolution -> 100]]];
+  Rasterize[Panel[SMEFTADMExplorer`Private`entryPanel[data, ExplorerGraphData[data, "cuG", "Outgoing", "Direct"], {"cuG", "cHGt", 1}, False], ImageSize -> 440], ImageResolution -> 100]];
+ (* explicit flavour: weighted family graph, focus view, flavour panels *)
+ If[AssociationQ[flavor],
+  SMEFTADMExplorer`Private`$flavorData = flavor;
+  Export[FileNameJoin["snapshots", "cuH_generated_by_weighted_by_flavour.png"],
+   SMEFTADMExplorer`Private`explorerGraphics[data, SMEFTADMExplorer`Private`weightFamilyEdges[ExplorerGraphData[data, "cuH", "Incoming", "Direct", "ShowSelfRunning" -> True], flavor, "FullUp", "Sum", 10.^-8], "Radial", "ShowSelf" -> True], ImageResolution -> 90];
+  Export[FileNameJoin["snapshots", "cuH33_flavour_focus.png"],
+   SMEFTADMExplorer`Private`explorerGraphics[data, SMEFTADMExplorer`Private`flavorFocusGraph[flavor, "cuH", {3, 3}, "Incoming", "FullUp", "Sum", 20, 10.^-8], "Radial", "ShowSelf" -> True], ImageResolution -> 90];
+  Export[FileNameJoin["snapshots", "flavour_panel_cHG_to_cuH.png"],
+   Rasterize[Panel[SMEFTADMExplorer`Private`flavorBlockPanel[flavor, "cHG", "cuH", "FullUp", "Sum", "", False, (Null &), {flavor["RowsOf"]["cuH"][[-1]], flavor["ColsOf"]["cHG"][[1]]}], ImageSize -> 440], ImageResolution -> 100]];
+  Export[FileNameJoin["snapshots", "flavour_panel_cqu1_to_cuH.png"],
+   Rasterize[Panel[SMEFTADMExplorer`Private`flavorBlockPanel[flavor, "cqu1", "cuH", "FullUp", "Sum", "", False, (Null &), None], ImageSize -> 440], ImageResolution -> 100]]]];
 Print["done"];
