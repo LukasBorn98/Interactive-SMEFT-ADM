@@ -22,7 +22,7 @@
 BeginPackage["SMEFTADMExplorer`"];
 
 BuildADMData::usage = "BuildADMData[betaFile, outFile] reads the SMEFT beta functions (Matchete notation) and writes the cached ADM data to outFile (WXF). Returns the data association. Without outFile only the association is returned.";
-SMEFTADMExplorer::usage = "SMEFTADMExplorer[dataFile] returns the interactive ADM explorer. SMEFTADMExplorer[dataFile, op] starts centered on operator op (e.g. \"cH\"). The first argument may also be the data association itself.";
+SMEFTADMExplorer::usage = "SMEFTADMExplorer[] returns the interactive ADM explorer (data: ADMData.wxf next to the package file). SMEFTADMExplorer[op] starts centered on operator op (e.g. \"cH\"). SMEFTADMExplorer[dataFile, op] reads the data from dataFile; the first argument may also be the data association itself.";
 MakeExplorerNotebook::usage = "MakeExplorerNotebook[nbFile, \"EmbedData\" -> True|False] generates the stand-alone explorer notebook.";
 LoadADMData::usage = "LoadADMData[file] reads a cached ADM data file.";
 ToCleanExpression::usage = "ToCleanExpression[expr] converts a beta-function expression in Matchete notation into a typeset (TraditionalForm-ready) expression.";
@@ -1103,10 +1103,19 @@ searchOps[data_Association, q_String] := Module[{qq = ToLowerCase[StringTrim[q]]
    ================================================================================================ *)
 
 $explorerData = None;
+$loadedDataFile = None;
 
 SMEFTADMExplorer::data = "Could not read ADM data from `1`.";
 
-SMEFTADMExplorer[src_, startOp_String : "cH"] := Module[{data = If[AssociationQ[src], src, LoadADMData[src]], start},
+$defaultDataFile := FileNameJoin[{If[$SMEFTADMExplorerDirectory === None, Directory[], $SMEFTADMExplorerDirectory], "ADMData.wxf"}];
+
+(* no data argument: use ADMData.wxf from the folder of the package file (read once per session) *)
+SMEFTADMExplorer[] := SMEFTADMExplorer["cH"];
+SMEFTADMExplorer[op_String] /; ! StringEndsQ[op, ".wxf"] := SMEFTADMExplorer[$defaultDataFile, op];
+
+SMEFTADMExplorer[src_, startOp_String : "cH"] := Module[{data = Which[AssociationQ[src], src,
+      src === $loadedDataFile && AssociationQ[$explorerData], $explorerData, True, LoadADMData[src]], start},
+  If[StringQ[src], $loadedDataFile = src];
   If[! AssociationQ[data], Message[SMEFTADMExplorer::data, src]; Return[$Failed]];
   $explorerData = data;
   start = Catch[normalizeOpID[data, startOp], "badop"];
@@ -1200,14 +1209,17 @@ MakeExplorerNotebook[nbFile_String, OptionsPattern[]] := Module[{embed = TrueQ[O
    loadCode = "(* stand-alone: the package source and the cached ADM data are embedded in this notebook *)\n" <>
      "Get[StringToStream[Uncompress[\"" <> Compress[src] <> "\"]]];\n" <>
      "SMEFTADMExplorer`Private`$notebookData = BinaryDeserialize[BaseDecode[\"" <> BaseEncode[bytes] <> "\"]];",
-   loadCode = "(* loads SMEFTADMExplorer.m and ADMData.wxf from the folder of this notebook *)\n" <>
-     "Get[FileNameJoin[{NotebookDirectory[], \"SMEFTADMExplorer.m\"}]];\n" <>
-     "SMEFTADMExplorer`Private`$notebookData = SMEFTADMExplorer`LoadADMData[FileNameJoin[{NotebookDirectory[], \"" <> FileNameTake[dataFile] <> "\"}]];"];
-  cells = {
-    Cell["SMEFT ADM Explorer", "Title"],
-    Cell["Interactive graph of the one- and two-loop anomalous dimension matrix of the dimension-six SMEFT (Mainz basis). Evaluate the two input cells below (or accept the automatic evaluation of the initialization cells). Click an arrow for its entry, click an operator to recenter the graph.", "Text"],
-    Cell[CellGroupData[{Cell["Loader (package source and data)", "Section"], Cell[loadCode, "Input", InitializationCell -> True, CellLabel -> "load"]}, Closed]],
-    Cell[launch, "Input", InitializationCell -> True, CellLabel -> "launch"]};
+   (* linked variant: a single cell; the package finds ADMData.wxf next to SMEFTADMExplorer.m itself.
+      The cell is parsed before Get runs, so the symbol must be written with its full context, otherwise it is created in Global` and shadows the package. *)
+   loadCode = None];
+  cells = If[embed,
+    {Cell["SMEFT ADM Explorer", "Title"],
+     Cell["Interactive graph of the one- and two-loop anomalous dimension matrix of the dimension-six SMEFT (Mainz basis). Evaluate the two input cells below (or accept the automatic evaluation of the initialization cells). Click an arrow for its entry, click an operator to recenter the graph.", "Text"],
+     Cell[CellGroupData[{Cell["Loader (package source and data)", "Section"], Cell[loadCode, "Input", InitializationCell -> True, CellLabel -> "load"]}, Closed]],
+     Cell[launch, "Input", InitializationCell -> True, CellLabel -> "launch"]},
+    {Cell["SMEFT ADM Explorer", "Title"],
+     Cell["Interactive graph of the one- and two-loop anomalous dimension matrix of the dimension-six SMEFT (Mainz basis). The cell below loads the package from the folder of this notebook and starts the explorer (it runs on open; otherwise press Shift+Enter). Click an arrow for its entry, click an operator to recenter the graph.", "Text"],
+     Cell["Get[FileNameJoin[{NotebookDirectory[], \"SMEFTADMExplorer.m\"}]]; SMEFTADMExplorer`SMEFTADMExplorer[" <> If[start === "cH", "", "\"" <> start <> "\""] <> "]", "Input", InitializationCell -> True]}];
   nb = Notebook[cells, CellGrouping -> Manual, InitializationCellEvaluation -> True, InitializationCellWarning -> False,
     WindowSize -> {1500, 900}, WindowTitle -> "SMEFT ADM Explorer"];
   Export[nbFile, nb, "NB"];

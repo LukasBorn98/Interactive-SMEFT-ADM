@@ -16,7 +16,7 @@ The data are the one- and two-loop beta functions of the dimension-six SMEFT in 
    * `SMEFT_ADM_Explorer.nb`: the notebook
    * `SMEFTADMExplorer.m`: the code
    * `ADMData.wxf`: the preprocessed data
-2. Open `SMEFT_ADM_Explorer.nb` in Mathematica. The two initialization cells (load and launch) run on open and the explorer appears. If your Mathematica asks whether to evaluate initialization cells, accept; otherwise evaluate the cells by hand with Shift+Enter.
+2. Open `SMEFT_ADM_Explorer.nb` in Mathematica. Its single input cell loads the code and data from the notebook's folder and starts the explorer; it runs on open. If your Mathematica asks whether to evaluate initialization cells, accept; otherwise evaluate the cell by hand with Shift+Enter.
 
 The first view is centered on C<sub>H</sub>. Everything else is point and click. If the explorer does not appear, check that the three files really are in the same folder: the notebook looks for the other two next to itself.
 
@@ -73,13 +73,14 @@ In a notebook, the package can also be used directly:
 
 ```mathematica
 Get["SMEFTADMExplorer.m"];
-SMEFTADMExplorer["ADMData.wxf", "cHq1"]          (* the explorer, centered on C_Hq^(||) *)
+SMEFTADMExplorer[]                                (* the explorer; reads ADMData.wxf next to the package file *)
+SMEFTADMExplorer["cHq1"]                          (* the same, centered on C_Hq^(||) *)
 ToTeXString[expr]                                 (* LaTeX of a beta-function expression in Matchete notation *)
 ```
 
 | File | Purpose |
 |---|---|
-| `SMEFT_ADM_Explorer.nb` | the notebook; loads the two files below from its own folder |
+| `SMEFT_ADM_Explorer.nb` | the notebook (one cell); loads the two files below from its own folder |
 | `SMEFTADMExplorer.m` | the package |
 | `ADMData.wxf` | cached, preprocessed ADM data |
 | `make_all.wls`, `tests/` | rebuild script and acceptance tests |
