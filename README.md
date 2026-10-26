@@ -27,15 +27,39 @@ The first view is centered on C<sub>H</sub>. Everything else is point and click.
 | **Nodes** | the 59 operators, colored by operator class |
 | **Red arrow** | the mixing is nonzero at one loop (a two-loop part may exist as well) |
 | **Green dashed arrow** | the mixing first appears at two loops |
+| **Amber band and warning triangle** | (*1-loop + 2-loop* mode) the two-loop part of this entry is **not cross-checked**, see [below](#two-loop-entries-that-are-not-cross-checked) |
 | **Navy halo** | (*1-loop squared* mode) an operator reached only through a chain of two one-loop steps, i.e. genuinely new at order (γ<sup>(0)</sup>)<sup>2</sup> |
 | **Chains as a tree** | (*1-loop squared* mode) the center, then the operators it runs into on a first ring, then, behind each of those, its own copies of the operators *it* runs into on an outer circle. An operator reached through several intermediate operators therefore appears several times, once per intermediate operator, and no arrow crosses another. At first only the first ring is shown; the number on a first-ring operator is the size of its branch |
-| **Badge on the center** | whether the operator mixes into itself at one and two loops |
+| **Badge on the center** | whether the operator mixes into itself at one and two loops (for the dipoles it carries the warning "2L unchecked") |
 
 Operators with many neighbors are spread over up to three rings, ordered by class. Arrows to outer rings are longer but never cross another operator.
 
 | Many neighbors (here 56) | Chains of two one-loop steps (tree) |
 |---|---|
 | ![](snapshots/cuH_generated_by_direct_56_neighbours.png) | ![](snapshots/cHWB_runs_into_one_loop_squared.png) |
+
+## Two-loop entries that are not cross-checked
+
+The two-loop calculation uses an anticommuting γ<sub>5</sub> (NDR). γ<sub>5</sub>-odd Dirac traces then depend on the reading point, and the paper fixes it by a prescription (Sec. 3.2). The prescription was verified for most diagram classes, but **not** for the classes of Table 3 / Sec. 3.2.8, which only affect the two-loop simple poles (the one-loop entries are unaffected). The explorer marks the two-loop entries of these classes:
+
+| Class (Table 3) | Diagram | Marked entries |
+|---|---|---|
+| ψ²XH → ψ²XH | Figs. 6a, 7 | dipole → dipole, including the self-running of the dipoles (48 arrows + 8) |
+| ψ²XH → CP-odd X²H² | Figs. 6b-6j | dipole → C<sub>HG̃</sub>, C<sub>HW̃</sub>, C<sub>HB̃</sub>, C<sub>HW̃B</sub> (30 arrows) |
+| ψ²XH → CP-odd X³ | Fig. 6k | dipole → C<sub>G̃</sub>, C<sub>W̃</sub> (5 arrows) |
+| H²X² → ψ²H³ | Fig. 8e | C<sub>HG̃</sub>, C<sub>HW̃</sub>, C<sub>HB̃</sub>, C<sub>HW̃B</sub> → C<sub>eH</sub>, C<sub>uH</sub>, C<sub>dH</sub> (12 arrows) |
+| ψ²H³ → CP-odd X²H² | Fig. 5 | no entry in the data |
+| scalar ψ⁴ → CP-odd X²H² | Fig. 3b | no entry in the data (the prescription gives no contribution) |
+
+* **In the graph** (*1-loop + 2-loop* mode): an amber band under the arrow and a warning triangle on it. The checkbox *mark entries not cross-checked* switches this off.
+* **In the side panel**: clicking such an arrow shows an amber warning box directly above the two-loop entry (with the diagram class, the prescription and the reason), and a short note at the top of the panel. The tooltips of the arrow and, for the dipoles, of the center operator carry the warning too.
+* **Overview**: the folding section *Two-loop entries not cross-checked* in the left column lists the table.
+
+The classes are taken from the paper; the paper does not say *which terms* of an entry are concerned, so a marked entry **may** contain ambiguous contributions, not necessarily that all of its terms do.
+
+| C<sub>HW̃B</sub> runs into ... | Entry of C<sub>uG</sub> → C<sub>HG̃</sub> |
+|---|---|
+| ![](snapshots/cHWtB_runs_into_direct_unchecked_entries.png) | <img src="snapshots/entry_panel_cuG_to_cHGt_unchecked.png" width="380" alt="Entry panel with warning"> |
 
 ## Using it
 

@@ -16,7 +16,8 @@ If[! DirectoryQ["snapshots"], CreateDirectory["snapshots"]];
 views = {
   {"cH_generated_by_direct", "cH", "Incoming", "Direct"},
   {"cuH_generated_by_direct_56_neighbours", "cuH", "Incoming", "Direct"},
-  {"cHWB_runs_into_one_loop_squared", "cHWB", "Outgoing", "OneLoopSquared"}};
+  {"cHWB_runs_into_one_loop_squared", "cHWB", "Outgoing", "OneLoopSquared"},
+  {"cHWtB_runs_into_direct_unchecked_entries", "cHWtB", "Outgoing", "Direct"}};
 UsingFrontEnd[
  Do[
   Module[{g = ExplorerGraphData[data, v[[2]], v[[3]], v[[4]], "ShowSelfRunning" -> True]},
@@ -24,5 +25,9 @@ UsingFrontEnd[
     SMEFTADMExplorer`Private`explorerGraphics[data, g, "Radial", "ShowSelf" -> True], ImageResolution -> 90]], {v, views}];
  (* side panel with a one-loop and a two-loop entry *)
  Export[FileNameJoin["snapshots", "entry_panel_cHq2_to_cHq1.png"],
-  Rasterize[Panel[SMEFTADMExplorer`Private`entryPanel[data, ExplorerGraphData[data, "cHq1", "Incoming", "Direct"], {"cHq2", "cHq1", 1}, False], ImageSize -> 440], ImageResolution -> 100]]];
+  Rasterize[Panel[SMEFTADMExplorer`Private`entryPanel[data, ExplorerGraphData[data, "cHq1", "Incoming", "Direct"], {"cHq2", "cHq1", 1}, False], ImageSize -> 440], ImageResolution -> 100]];
+ (* the same for an entry whose two-loop part is not cross-checked (Table 3 of the paper) *)
+ SMEFTADMExplorer`Private`$explorerData = data;
+ Export[FileNameJoin["snapshots", "entry_panel_cuG_to_cHGt_unchecked.png"],
+  Rasterize[Panel[SMEFTADMExplorer`Private`entryPanel[data, ExplorerGraphData[data, "cuG", "Outgoing", "Direct"], {"cuG", "cHGt", 1}, False], ImageSize -> 440], ImageResolution -> 100]]];
 Print["done"];

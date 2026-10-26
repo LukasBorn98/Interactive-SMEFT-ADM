@@ -234,6 +234,59 @@ Module[{ui = SMEFTADMExplorer`SMEFTADMExplorer[d, "cH"], panel},
  panel = P["entryPanel"][d, ExplorerGraphData[d, "cHWB", "Incoming", "Direct"], {"cHW", "cHWB", 1}, False];
  check["the UI contains no Delimiter symbol", FreeQ[ui, Delimiter] && FreeQ[panel, Delimiter]]];
 
+(* ---------------------------------------------------------------- two-loop entries that are not cross-checked (Table 3) *)
+(* The rules are transcribed from Table 3 / Sec. 3.2 of the paper (see section 7b of the package). *)
+Module[{rules = P["$unverifiedRules"], cnt, flaggedEdges, allowedSrc, g, r, panelFlag, panelPlain, tipFlag, tipPlain, strs, rOne, rChain, rOff, selfFlag, nodeInfo, ov},
+ SMEFTADMExplorer`Private`$explorerData = d;
+ check["Table 3 rules: all operator IDs exist", AllTrue[Flatten[Join[#["Sources"], #["Targets"]] & /@ rules], MemberQ[ops, #] &]];
+ check["Table 3 rules: dipoles = the 8 psi2XH operators, CP-odd X2H2 = H G~, H W~, H B~, H W~B, CP-odd X3 = G~, W~",
+  Sort[P["$dipoleOps"]] === Sort[{"ceW", "ceB", "cuG", "cuW", "cuB", "cdG", "cdW", "cdB"}] && Sort[P["$cpOddX2H2Ops"]] === Sort[{"cHGt", "cHWt", "cHBt", "cHWtB"}] && Sort[P["$cpOddX3Ops"]] === Sort[{"cGt", "cWt"}]];
+ cnt = Association[#["ID"] -> P["unverifiedCounts"][d, #] & /@ rules];
+ check["unverified entries in the data (arrows, self-running): 6a 48+8, 6b-j 30, 6k 5, 7 48+8, 8e 12; Figs. 3b and 5 have no entry",
+  cnt === <|"Fig5" -> {0, 0}, "Fig6a" -> {48, 8}, "Fig6b-j" -> {30, 0}, "Fig6k" -> {5, 0}, "Fig3b" -> {0, 0}, "Fig7" -> {48, 8}, "Fig8e" -> {12, 0}|>, cnt];
+ flaggedEdges = Select[Keys[d["Edges"]], P["unverifiedRulesFor"] @@ # =!= {} &];
+ allowedSrc = Union[P["$dipoleOps"], P["$cpOddX2H2Ops"]];
+ check["flagged arrows: " <> ToString[Length[flaggedEdges]] <> " (dipoles -> dipoles/CP-odd X2H2/CP-odd X3, CP-odd X2H2 -> psi2H3); each has a two-loop part",
+  Length[flaggedEdges] === 48 + 30 + 5 + 12 && SubsetQ[allowedSrc, flaggedEdges[[All, 1]]] && AllTrue[flaggedEdges, d["Edges", #, "L2"] &]];
+ check["unflagged examples: Hq(x) -> Hq(||), C_H -> C_HD, the CP-even X2H2 -> psi2H3, dipole -> CP-even X2H2",
+  AllTrue[{{"cHq2", "cHq1"}, {"cH", "cHD1"}, {"cHG", "cuH"}, {"cHWB", "ceH"}, {"cuG", "cHG"}, {"cuG", "cHW"}}, P["unverifiedRulesFor"] @@ # === {} &]];
+ (* graph: marked arrows only in the Direct view *)
+ g = ExplorerGraphData[d, "cuG", "Outgoing", "Direct", "ShowSelfRunning" -> True];
+ r = P["renderGraphics"][d, g, "Radial", "ShowSelf" -> True];
+ rOne = P["renderGraphics"][d, ExplorerGraphData[d, "cuG", "Outgoing", "OneLoop"], "Radial"];
+ rChain = P["renderGraphics"][d, ExplorerGraphData[d, "cuG", "Outgoing", "OneLoopSquared"], "Radial"];
+ rOff = P["renderGraphics"][d, g, "Radial", "ShowUnverified" -> False];
+ check["Direct view of C_uG: " <> ToString[r["NUnverified"]] <> " marked arrows = flagged edges of the view; none in the 1-loop and chain views or when switched off",
+  r["NUnverified"] === Count[g["Edges"], e_ /; P["unverifiedRulesFor"][e["From"], e["To"]] =!= {}] && r["NUnverified"] > 0 && rOne["NUnverified"] === 0 && rChain["NUnverified"] === 0 && rOff["NUnverified"] === 0, r["NUnverified"]];
+ check["Direct view of C_uG: marked arrows carry an amber band and a warning triangle with a click handler each",
+  Count[r["Primitives"], c_RGBColor /; c === P["$warnFill"], Infinity] >= r["NUnverified"] && Length[Cases[r["Primitives"], EventHandler[Tooltip[Inset[_Graphics, ___], _], _], Infinity]] === r["NUnverified"]];
+ (* side panel *)
+ strs[x_] := Cases[x, _String, Infinity];
+ panelFlag = P["entryPanel"][d, g, {"cuG", "cHGt", 1}, False];
+ panelPlain = P["entryPanel"][d, ExplorerGraphData[d, "cHq1", "Incoming", "Direct"], {"cHq2", "cHq1", 1}, False];
+ check["entry panel of C_uG -> C_H G~: banner with the diagram class (Figs. 6b-6j) above the two-loop entry",
+  AnyTrue[strs[panelFlag], StringContainsQ[#, "NOT CROSS-CHECKED"] &] && AnyTrue[strs[panelFlag], StringContainsQ[#, "Figs. 6b-6j"] &]];
+ check["entry panel of C_Hq(x) -> C_Hq(||): no banner",
+  NoneTrue[strs[panelPlain], StringContainsQ[#, "CROSS-CHECKED"] || StringContainsQ[#, "cross-checked"] &]];
+ check["entry panel of a dipole -> dipole arrow names both diagram classes (Fig. 6a and Fig. 7)",
+  Module[{s = strs[P["entryPanel"][d, ExplorerGraphData[d, "cuG", "Outgoing", "Direct"], {"cuG", "cuW", 1}, False]]},
+   AnyTrue[s, StringContainsQ[#, "Fig. 6a"] &] && AnyTrue[s, StringContainsQ[#, "Fig. 7"] &]]];
+ check["entry panel of CP-odd X2H2 -> psi2H3 (Fig. 8e) is flagged",
+  AnyTrue[strs[P["entryPanel"][d, ExplorerGraphData[d, "cHGt", "Outgoing", "Direct"], {"cHGt", "cuH", 1}, False]], StringContainsQ[#, "Fig. 8e"] &]];
+ (* tooltips *)
+ tipFlag = P["edgeTooltip"][d, <|"From" -> "cuG", "To" -> "cHGt", "Hop" -> 1|>];
+ tipPlain = P["edgeTooltip"][d, <|"From" -> "cHq2", "To" -> "cHq1", "Hop" -> 1|>];
+ check["edge tooltips: warning only on flagged arrows",
+  AnyTrue[strs[tipFlag], StringContainsQ[#, "not cross-checked"] &] && NoneTrue[strs[tipPlain], StringContainsQ[#, "not cross-checked"] &]];
+ nodeInfo = P["nodeTooltipInfo"][g, "cuG"];
+ check["center tooltip of a dipole flags the self-running; the one of C_H does not",
+  nodeInfo["SelfUnverified"] === True && P["nodeTooltipInfo"][ExplorerGraphData[d, "cH", "Incoming", "Direct"], "cH"]["SelfUnverified"] === False
+   && AnyTrue[strs[P["nodeTooltipFromInfo"][d, nodeInfo]], StringContainsQ[#, "self-running is not cross-checked"] &]];
+ selfFlag = Cases[r["Primitives"], s_String /; StringContainsQ[s, "unchecked"], Infinity];
+ check["self-running badge of a dipole centre carries the warning", selfFlag =!= {}];
+ ov = P["unverifiedOverview"][d];
+ check["overview of Table 3 lists all " <> ToString[Length[rules]] <> " rules", Count[ov, s_String /; StringStartsQ[s, "Fig"], Infinity] >= Length[rules]]];
+
 (* ---------------------------------------------------------------- click handlers must be self-contained *)
 (* Regression test: handlers that refer to Module-local symbols stop working in the front end (the
    temporary symbols are removed once only the front end holds the graphic). *)

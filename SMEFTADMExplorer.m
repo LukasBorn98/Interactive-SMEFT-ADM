@@ -1035,6 +1035,76 @@ computeLayout[data_Association, graph_Association, layoutName_String] := Module[
   $layoutCache[key]];
 
 (* ================================================================================================
+   7b. Two-loop entries that are not cross-checked (Table 3 of the paper)
+   ================================================================================================
+   Born, Fuentes-Martin, Thomsen, Sec. 3.2 and Table 3: the two-loop calculation uses an anticommuting gamma5 (NDR).
+   gamma5-odd Dirac traces with at least six gamma matrices depend on the reading point of the trace; the
+   prescription of the paper was verified for most diagram classes (reality of the counterterms, basis change to
+   "open" four-fermion operators, LEFT results), but NOT for the classes below (Sec. 3.2.8: Figs. 3b, 5, 6a-6k, 7, 8e).
+   The ambiguity enters the simple pole of two-loop counterterms only; the one-loop entries are unaffected (Sec. 3.1).
+
+   The paper names the classes of operators, not the individual operator pairs or terms. A rule therefore flags every
+   entry Source -> Target of the class (the entry MAY contain an ambiguous contribution). Rules whose pairs have no
+   entry in the data (Figs. 3b and 5) match nothing and are kept for the record.
+
+   Reading of Table 3 (FromClass/ToClass name the classes of the row):
+     * psi2H3 -> CP-odd X2H2 (Fig. 5)                       reading point at the dimension-six vertex
+     * psi2XH -> psi2XH, CP-odd X2H2, CP-odd X3 (6a-6k)       reading point at the dimension-six vertex
+     * scalar psi4 -> CP-odd X2H2 (Fig. 3b)                  averaged reading points (Sec. 3.2.2: only O_quqd^(||,x) and O_luqe)
+     * psi2XH -> psi2XH (Fig. 7)                              averaged reading points
+     * H2X2 -> psi2H3 (Fig. 8e)                              averaged reading points; Sec. 3.2.6: only the CP-odd H2X2 operators
+   "CP-odd X2H2" = H G~, H W~, H B~, H W~B (keys cHGt, cHWt, cHBt, cHWtB); "CP-odd X3" = G~, W~ (cGt, cWt).        *)
+
+$dipoleOps = Cases[$operatorSpecs, {id_, "psi2XH", __} :> id];
+$yukawaOps = Cases[$operatorSpecs, {id_, "psi2H3", __} :> id];
+$cpOddX2H2Ops = {"cHGt", "cHWt", "cHBt", "cHWtB"};
+$cpOddX3Ops = {"cGt", "cWt"};
+$scalarFig3bOps = {"cquqd1", "cquqd2", "cluqe"};
+
+$unverifiedRules = {
+  <|"ID" -> "Fig5", "FromClass" -> "psi2H3", "FromOdd" -> False, "ToClass" -> "X2H2", "ToOdd" -> True, "Figures" -> "Fig. 5", "Section" -> "3.2.4",
+   "Prescription" -> "reading point at the dimension-six vertex", "Sources" -> $yukawaOps, "Targets" -> $cpOddX2H2Ops,
+   "Text" -> "Dimension-six Yukawa operator in a fermion loop. The prescription could not be checked by a change of basis, and no check in the literature exists; the paper calls for additional scrutiny."|>,
+  <|"ID" -> "Fig6a", "FromClass" -> "psi2XH", "FromOdd" -> False, "ToClass" -> "psi2XH", "ToOdd" -> False, "Figures" -> "Fig. 6a", "Section" -> "3.2.5",
+   "Prescription" -> "reading point at the dimension-six vertex", "Sources" -> $dipoleOps, "Targets" -> $dipoleOps,
+   "Text" -> "Running of a dipole into a dipole through a fermion loop with the dipole inserted on the \[Gamma]5-odd trace. The consistency of the prescription could not be verified for any dipole diagram; the dipole coefficients are generic complex 3x3 matrices, so imposing reality does not remove the ambiguity."|>,
+  <|"ID" -> "Fig6b-j", "FromClass" -> "psi2XH", "FromOdd" -> False, "ToClass" -> "X2H2", "ToOdd" -> True, "Figures" -> "Figs. 6b-6j", "Section" -> "3.2.5",
+   "Prescription" -> "reading point at the dimension-six vertex", "Sources" -> $dipoleOps, "Targets" -> $cpOddX2H2Ops,
+   "Text" -> "Dipole inserted on a \[Gamma]5-odd trace in a fermion loop, generating a CP-odd X\:00b2H\:00b2 operator. Not verified; reality of the Lagrangian cannot cure it."|>,
+  <|"ID" -> "Fig6k", "FromClass" -> "psi2XH", "FromOdd" -> False, "ToClass" -> "X3", "ToOdd" -> True, "Figures" -> "Fig. 6k", "Section" -> "3.2.5",
+   "Prescription" -> "reading point at the dimension-six vertex", "Sources" -> $dipoleOps, "Targets" -> $cpOddX3Ops,
+   "Text" -> "Dipole inserted on a \[Gamma]5-odd trace in a fermion loop, generating a CP-odd X\:00b3 operator. Not verified; reality of the Lagrangian cannot cure it."|>,
+  <|"ID" -> "Fig3b", "FromClass" -> "scalar4", "FromOdd" -> False, "ToClass" -> "X2H2", "ToOdd" -> True, "Figures" -> "Fig. 3b", "Section" -> "3.2.2, 5.2.2",
+   "Prescription" -> "average over the reading points of the two three-point vertices", "Sources" -> $scalarFig3bOps, "Targets" -> $cpOddX2H2Ops,
+   "Text" -> "Figure-8 diagram with a scalar four-fermion operator. With the prescription it gives a pure double pole and no contribution; but no unambiguous result can be ascribed to this diagram (its open-basis version is ambiguous itself)."|>,
+  <|"ID" -> "Fig7", "FromClass" -> "psi2XH", "FromOdd" -> False, "ToClass" -> "psi2XH", "ToOdd" -> False, "Figures" -> "Fig. 7", "Section" -> "3.2.5",
+   "Prescription" -> "average over the reading points of the two three-point vertices", "Sources" -> $dipoleOps, "Targets" -> $dipoleOps,
+   "Text" -> "Self-running of the dipoles: the dipole is not part of the \[Gamma]5-odd trace. The traces read from the two three-point vertices are averaged. This class could not be cross-checked either."|>,
+  <|"ID" -> "Fig8e", "FromClass" -> "X2H2", "FromOdd" -> True, "ToClass" -> "psi2H3", "ToOdd" -> False, "Figures" -> "Fig. 8e", "Section" -> "3.2.6",
+   "Prescription" -> "average over the reading points of the two three-point vertices", "Sources" -> $cpOddX2H2Ops, "Targets" -> $yukawaOps,
+   "Text" -> "A CP-odd X\:00b2H\:00b2 operator in a \[Gamma]5-odd trace with SM interactions. The ambiguity cannot be removed by imposing reality. It sits in the counterterm of the off-shell operator i H\[Dagger]H (H\[Dagger]D\:00b2H - D\:00b2H\[Dagger]H) and, after the field redefinition of the Higgs, is shifted to C_eH, C_dH, C_uH."|>};
+
+(* rules that apply to the two-loop entry Source -> Target (Source = Target: the self-running) *)
+unverifiedRulesFor[src_String, tgt_String] := Select[$unverifiedRules, MemberQ[#["Sources"], src] && MemberQ[#["Targets"], tgt] &];
+
+(* colours of the warning marks (amber; the red/green arrows and the pale yellow selection stay distinguishable) *)
+$warnFill = RGBColor["#FFB300"];
+$warnDark = RGBColor["#8A4B00"];
+$warnBackground = RGBColor["#FFF4D6"];
+
+(* the warning triangle, as a small Graphics (no dependence on the fonts of a system) *)
+warnIcon[s_ : 16] := Graphics[{EdgeForm[{AbsoluteThickness[1.3], JoinForm["Round"], $warnDark}], FaceForm[$warnFill],
+    Polygon[{{0, 0}, {1, 0}, {0.5, 0.88}}], Text[Style["!", Bold, 0.62 s, FontFamily -> "Arial", FontColor -> GrayLevel[0.05]], {0.5, 0.31}]},
+   ImageSize -> {s, 0.9 s}, PlotRange -> {{-0.06, 1.06}, {-0.06, 0.94}}, AspectRatio -> Full, PlotRangePadding -> 0, ImagePadding -> 0, BaselinePosition -> Scaled[0.15]];
+
+(* point at half of the length of a polyline *)
+polylineMidpoint[pts_List] := Module[{seg = Norm /@ Differences[pts], cum, half, i, t},
+  cum = Accumulate[seg]; half = Last[cum]/2;
+  i = First[Flatten[Position[cum, x_ /; x >= half, 1, 1]]];
+  t = (half - If[i === 1, 0, cum[[i - 1]]])/Max[seg[[i]], 10.^-9];
+  pts[[i]] + t (pts[[i + 1]] - pts[[i]])];
+
+(* ================================================================================================
    8. Rendering
    ================================================================================================ *)
 
@@ -1079,6 +1149,8 @@ edgeTooltip[data_Association, e_Association] := Module[{f = e["From"], t = e["To
       Row[{opLabel[data, f, 14], Style["  \[RightArrow]  ", 14], opLabel[data, t, 14]}],
       Style[loops <> If[e["Hop"] === 2, "   (second leg of a one-loop chain)", ""], 11, FontFamily -> $uiFont],
       couplingsRow["1-loop", ed["Couplings1"]], couplingsRow["2-loop", ed["Couplings2"]]},
+     If[ed["L2"] && unverifiedRulesFor[f, t] =!= {},
+      {Row[{warnIcon[14], Style["  two-loop part not cross-checked (\[Gamma]5 reading point)", 11, Bold, $warnDark, FontFamily -> $uiFont]}]}, {}],
      If[via === None, {}, {Style[via, 11, FontFamily -> $uiFont]}],
      {Style["click for the full entry", Gray, 10, FontFamily -> $uiFont]}], Left, 0.35],
    FrameStyle -> GrayLevel[0.7], Background -> White, FrameMargins -> 6]];
@@ -1088,6 +1160,7 @@ nodeTooltipInfo[graph_Association, id_String] := With[{op = graph["NodeOp"][id]}
   <|"Op" -> op, "Center" -> (id === graph["Center"]), "New" -> MemberQ[graph["NewEndpoints"], op],
    "Leaf" -> (TrueQ[graph["Tree"]] && id =!= graph["Center"] && graph["Depth"][id] === 2),
    "Outgoing" -> (graph["Direction"] === "Outgoing"), "Direction" -> graph["Direction"],
+   "SelfUnverified" -> (id === graph["Center"] && unverifiedRulesFor[op, op] =!= {}),
    "Ring1" -> (TrueQ[graph["Tree"]] && graph["Depth"][id] === 1),
    "Branches" -> If[TrueQ[graph["Tree"]] && graph["Depth"][id] === 1, Lookup[graph["BranchCount"], op, 0], 0],
    "IsOpen" -> (graph["Open"] === All || MemberQ[graph["Open"], op]),
@@ -1098,6 +1171,7 @@ nodeTooltipFromInfo[data_Association, info_Association] := With[{op = info["Op"]
      opLabel[data, op, 15],
      Style[classDisplayName[data, data["OperatorInfo", op, "Class"]] <> " operator   (" <> op <> ")", 11, FontFamily -> $uiFont],
      If[info["New"], Style[newOrderText[], 11, FontFamily -> $uiFont, FontColor -> $haloColor], Nothing],
+     If[TrueQ[info["SelfUnverified"]], Row[{warnIcon[14], Style["  its two-loop self-running is not cross-checked (\[Gamma]5 reading point)", 11, Bold, $warnDark, FontFamily -> $uiFont]}], Nothing],
      If[info["Leaf"],
       Style[Row[{If[info["Outgoing"], "reached via ", "reaching the centre via "], opLabel[data, info["Parent"], 12],
          If[info["Others"] === 0, "  (only this chain)", Row[{"  (this operator is also reached via ", info["Others"], " other intermediate operator", If[info["Others"] > 1, "s", ""], ")"}]]}], 11, FontFamily -> $uiFont],
@@ -1120,11 +1194,11 @@ lazyEdgeTooltip[e_Association] := With[{f = e["From"], t = e["To"], h = e["Hop"]
   Dynamic[edgeTooltip[$explorerData, <|"From" -> f, "To" -> t, "Hop" -> h|>]]];
 lazyNodeTooltip[info_Association] := With[{i = info}, Dynamic[nodeTooltipFromInfo[$explorerData, i]]];
 
-Options[renderGraphics] = {"EdgeThickness" -> 1.8, "CanvasSize" -> 880, "Zoom" -> 1., "OnNodeClick" -> (None &), "OnBranchClick" -> Automatic, "OnEdgeClick" -> (None &), "ShowSelf" -> False};
+Options[renderGraphics] = {"EdgeThickness" -> 1.8, "CanvasSize" -> 880, "Zoom" -> 1., "OnNodeClick" -> (None &), "OnBranchClick" -> Automatic, "OnEdgeClick" -> (None &), "ShowSelf" -> False, "ShowUnverified" -> True};
 
 (* Builds the primitives of the explorer graph. Returns an Association with everything the UI needs. *)
 renderGraphics[data_Association, graph_Association, layoutName_String, OptionsPattern[]] := Module[
-  {cl, lay, rt, R, z, canvas, pos, sizes, cls, newEnd, nodeOp, th, ahSize, onNode, onBranch, onEdge, edges, edgePrims, nodePrims, badge, center, selfRec, paths, fs},
+  {cl, lay, rt, R, z, canvas, pos, sizes, cls, newEnd, nodeOp, th, ahSize, onNode, onBranch, onEdge, edges, edgePrims, nodePrims, badge, center, selfRec, paths, fs, unvIdx, unvPrims = {}, unvMarkers = {}},
   cl = computeLayout[data, graph, layoutName];
   lay = cl["Layout"]; rt = cl["Routing"];
   canvas = OptionValue["CanvasSize"];
@@ -1140,6 +1214,11 @@ renderGraphics[data_Association, graph_Association, layoutName_String, OptionsPa
   onBranch = If[OptionValue["OnBranchClick"] === Automatic, onNode, OptionValue["OnBranchClick"]];
   ahSize = Clip[13./(2 R z), {0.008, 0.03}];
   paths = Association[Table[i -> z rt["Paths"][i], {i, Length[edges]}]];
+  (* arrows whose two-loop entry is not cross-checked (Table 3 of the paper): an amber band under the arrow and a warning
+     triangle at its midpoint. Only in the "Direct" view, whose arrows stand for the one- and the two-loop entry. *)
+  unvIdx = If[TrueQ[OptionValue["ShowUnverified"]] && graph["Mode"] === "Direct",
+    Select[Range[Length[edges]], data["Edges", {edges[[#, "From"]], edges[[#, "To"]]}, "L2"] && unverifiedRulesFor[edges[[#, "From"]], edges[[#, "To"]]] =!= {} &], {}];
+  unvPrims = Table[{$warnFill, AbsoluteThickness[th + 6], CapForm["Round"], JoinForm["Round"], Line[paths[i]]}, {i, unvIdx}];
   (* draw the long, green edges first so that the red ones stay on top *)
   edgePrims = With[{onEdge = onEdge}, Table[
     With[{e = edges[[i]], pts = paths[i]},
@@ -1154,6 +1233,10 @@ renderGraphics[data_Association, graph_Association, layoutName_String, OptionsPa
         lazyEdgeTooltip[e]],
        {"MouseClicked" :> onEdge[key]}]]], {i, Length[edges]}]];
   edgePrims = edgePrims[[Ordering[If[#["Color"] === "Green", 0, 1] & /@ edges, All, Less]]];
+  unvMarkers = With[{onEdge = onEdge}, Table[
+     With[{e = edges[[i]], pt = polylineMidpoint[paths[i]]},
+      With[{key = {e["From"], e["To"], e["Hop"]}},
+       EventHandler[Tooltip[Inset[warnIcon[18], pt, Center], lazyEdgeTooltip[e]], {"MouseClicked" :> onEdge[key]}]]], {i, unvIdx}]];
   nodePrims = With[{onNode = onNode, onBranch = onBranch}, Table[
     With[{id = op0, op = nodeOp[op0], p = z pos[op0], sz = z sizes[op0]},
      With[{isC = (id === center), fill = $classColors[data["OperatorInfo", op, "Class"]], isNew = MemberQ[newEnd, op],
@@ -1166,7 +1249,9 @@ renderGraphics[data_Association, graph_Association, layoutName_String, OptionsPa
         nBr = If[TrueQ[graph["Tree"]] && graph["Depth"][id] === 1, Lookup[graph["BranchCount"], op, 0], 0],
         isOpen = (graph["Open"] === All || MemberQ[graph["Open"], op]),
         selfTxt = If[isC && OptionValue["ShowSelf"] && graph["Self"] =!= None,
-          Text[Style[selfBadgeString[graph["Self"]], FontFamily -> $uiFont, FontSize -> 9.5 z, FontColor -> GrayLevel[0.15]], p + {0, -14 z}], {}]},
+          {Text[Style[selfBadgeString[graph["Self"]], FontFamily -> $uiFont, FontSize -> 9.5 z, FontColor -> GrayLevel[0.15]], p + {0, If[unverifiedRulesFor[op, op] =!= {} && graph["Self"]["L2"], -9.5 z, -14 z]}],
+           If[unverifiedRulesFor[op, op] =!= {} && graph["Self"]["L2"],
+            Text[Row[{warnIcon[11], Style[" 2L unchecked", FontFamily -> $uiFont, FontSize -> 8.5 z, Bold, FontColor -> $warnDark]}], p + {0, -20.5 z}], Nothing]}, {}]},
        EventHandler[
         Tooltip[
          {halo, EdgeForm[{AbsoluteThickness[If[isC, 2.4, 1]], If[isC, Black, GrayLevel[0.35]]}], FaceForm[fill], rect, lab, selfTxt,
@@ -1180,7 +1265,7 @@ renderGraphics[data_Association, graph_Association, layoutName_String, OptionsPa
            {EdgeForm[{AbsoluteThickness[2.2], RGBColor["#1565C0"]}], FaceForm[GrayLevel[1, 0.3]], rect}]},
          lazyNodeTooltip[nodeTooltipInfo[graph, id]]],
         {"MouseClicked" :> If[nBr > 0, onBranch[op], onNode[op]]}]]]], {op0, graph["Vertices"]}]];
-  <|"Primitives" -> {edgePrims, nodePrims}, "PlotRange" -> R z {{-1, 1}, {-1, 1}}, "ImageSize" -> 2 R z, "Zoom" -> z,
+  <|"Primitives" -> {unvPrims, edgePrims, unvMarkers, nodePrims}, "NUnverified" -> Length[unvIdx], "UnverifiedEdges" -> edges[[unvIdx]], "PlotRange" -> R z {{-1, 1}, {-1, 1}}, "ImageSize" -> 2 R z, "Zoom" -> z,
     "Paths" -> paths, "Positions" -> Association[# -> z pos[#] & /@ Keys[pos]], "Violations" -> rt["Violations"], "Radius" -> R|>];
 
 (* a static Graphics (no hooks needed) *)
@@ -1194,12 +1279,16 @@ selectedEdgeOverlay[paths_Association, edges_List, sel_] := Module[{i},
   If[i === None || ! KeyExistsQ[paths, i], {}, {RGBColor[1., 0.82, 0.1, 0.55], AbsoluteThickness[9], CapForm["Round"], Line[paths[i]]}]];
 
 (* legend: edge styles and highlights *)
-legendEdgeStyles[mode_String] := Grid[{
+legendEdgeStyles[mode_String, showUnv_ : False] := Grid[{
     {Graphics[{$edgeRed, AbsoluteThickness[2], Arrowheads[{{0.22, 1}}], Arrow[{{0, 0}, {1, 0}}]}, ImageSize -> 46, PlotRange -> {{-0.05, 1.05}, {-0.3, 0.3}}, AspectRatio -> 0.35],
      Style["nonzero at one loop", 11, FontFamily -> $uiFont]},
     If[mode === "Direct",
      {Graphics[{$edgeGreen, AbsoluteThickness[2], AbsoluteDashing[{6, 3}], Arrowheads[{{0.22, 1}}], Arrow[{{0, 0}, {1, 0}}]}, ImageSize -> 46, PlotRange -> {{-0.05, 1.05}, {-0.3, 0.3}}, AspectRatio -> 0.35],
       Style["two-loop only (dashed)", 11, FontFamily -> $uiFont]}, Nothing],
+    If[mode === "Direct" && TrueQ[showUnv],
+     {Graphics[{$warnFill, AbsoluteThickness[8], CapForm["Round"], Line[{{0, 0}, {1, 0}}], $edgeRed, AbsoluteThickness[2], Arrowheads[{{0.22, 1}}], Arrow[{{0, 0}, {1, 0}}],
+         Inset[warnIcon[15], {0.5, 0}, Center]}, ImageSize -> 46, PlotRange -> {{-0.05, 1.05}, {-0.3, 0.3}}, AspectRatio -> 0.35],
+      Pane[Style["amber band and triangle: the two-loop entry is not cross-checked (\[Gamma]5 ambiguity, see below)", 11, FontFamily -> $uiFont], 200]}, Nothing],
     If[mode === "OneLoopSquared",
      {Graphics[{EdgeForm[{AbsoluteThickness[2.2], $haloColor}], FaceForm[None], Rectangle[{0, 0}, {1, 0.5}, RoundingRadius -> 0.15], EdgeForm[{AbsoluteThickness[1], Lighter[$haloColor, 0.55]}], Rectangle[{-0.12, -0.12}, {1.12, 0.62}, RoundingRadius -> 0.2]}, ImageSize -> 46, PlotRange -> {{-0.2, 1.2}, {-0.2, 0.7}}],
       Style[newOrderText[], 11, FontFamily -> $uiFont]}, Nothing]},
@@ -1269,19 +1358,58 @@ legsForEdge[graph_Association, key_List] := Module[{c = graph["Center"], dir = g
   If[graph["Mode"] === "OneLoopSquared" && key[[3]] === 2,
    If[dir === "Outgoing", {{c, key[[1]], 1}, key}, {key, {key[[2]], c, 1}}], {key}]];
 
-entryPanelSection[data_Association, key_List, showFull_] := Module[{f = key[[1]], t = key[[2]], ed = data["Edges", {key[[1]], key[[2]]}], blocks, via},
+(* ---- warning for entries that are not cross-checked (Table 3 of the paper) ---- *)
+
+bannerText[str_String, opts___] := Style[str, 11, FontFamily -> $uiFont, opts];
+
+ruleClassLabel[cid_String, odd_] := Row[{If[TrueQ[odd], "CP-odd ", ""],
+    If[cid === "scalar4", Row[{"scalar ", Superscript["\[Psi]", "4"]}], classLabel[cid]]}];
+
+unverifiedBullet[r_Association] := Column[{
+    Pane[Row[{Style["\[FilledSmallCircle] ", $warnDark, 11], Style[r["Figures"] <> ", Sec. " <> r["Section"], Bold, 11, FontFamily -> $uiFont],
+       Style[":  " <> r["Prescription"], 11, FontFamily -> $uiFont]}], $entryWidth - 40],
+    Pane[bannerText[r["Text"], GrayLevel[0.15]], $entryWidth - 40]}, Left, 0.15];
+
+unverifiedBanner[rules_List] := Framed[Column[Join[{
+     Row[{warnIcon[22], Style["  NOT CROSS-CHECKED: \[Gamma]5 reading-point ambiguity", Bold, 13, $warnDark, FontFamily -> $uiFont]}],
+     Pane[bannerText["This two-loop entry belongs to a class of entries that depend on the reading-point prescription for \[Gamma]5-odd Dirac traces (anticommuting \[Gamma]5). For the diagram classes below the prescription could not be verified, neither by a change of operator basis nor against results in the literature. The entry may therefore contain ambiguous contributions to the two-loop simple pole. The paper names the operator classes, not the individual terms, so it is not known which terms are concerned. The one-loop entry is not affected."], $entryWidth - 20]},
+    unverifiedBullet /@ rules,
+    {bannerText["Born, Fuentes-Martin, Thomsen, Sec. 3.2 and Table 3.", GrayLevel[0.35]]}], Left, 0.7],
+   Background -> $warnBackground, FrameStyle -> {AbsoluteThickness[2.5], $warnFill}, FrameMargins -> 9, RoundingRadius -> 6];
+
+(* number of entries of the data covered by a rule: {arrows with a two-loop part, operators with two-loop self-running} *)
+unverifiedCounts[data_Association, r_Association] := {
+   Count[Keys[data["Edges"]], k_ /; MemberQ[r["Sources"], k[[1]]] && MemberQ[r["Targets"], k[[2]]] && data["Edges", k, "L2"]],
+   Count[Intersection[r["Sources"], r["Targets"]], op_ /; data["SelfRunning", op, "L2"]]};
+
+(* overview of Table 3 for the left column *)
+unverifiedOverview[data_Association] := Column[{
+    Pane[bannerText["The two-loop calculation uses an anticommuting \[Gamma]5. \[Gamma]5-odd traces then depend on the reading point; the paper's prescription was verified for most diagram classes, but not for the ones below (Table 3 of the paper). Their two-loop entries are marked; the one-loop entries are unaffected. The classes are given by the paper; which terms inside an entry are concerned is not known."], 255],
+    Grid[Prepend[
+      Table[With[{c = unverifiedCounts[data, r]},
+        {Pane[Style[Row[{ruleClassLabel[r["FromClass"], r["FromOdd"]], " \[RightArrow] ", ruleClassLabel[r["ToClass"], r["ToOdd"]]}], 11, FontFamily -> $uiFont], 118],
+         Style[r["Figures"], 11, FontFamily -> $uiFont],
+         Style[Which[c === {0, 0}, "no entry", c[[2]] === 0, ToString[c[[1]]], True, ToString[c[[1]]] <> " + " <> ToString[c[[2]]] <> " self"], 11, FontFamily -> $uiFont]}], {r, $unverifiedRules}],
+      Style[#, Bold, 11, FontFamily -> $uiFont] & /@ {"operators", "diagram", "entries"}],
+     Alignment -> Left, Spacings -> {1, 0.4}, Dividers -> {None, {2 -> GrayLevel[0.6]}}],
+    Pane[bannerText["\"no entry\": the data contain no entry for these pairs, so there is no arrow to mark. (For Fig. 3b the paper states that the prescription gives no contribution, Sec. 3.2.2.)", GrayLevel[0.3]], 255]}, Left, 0.8];
+
+entryPanelSection[data_Association, key_List, showFull_] := Module[{f = key[[1]], t = key[[2]], ed = data["Edges", {key[[1]], key[[2]]}], blocks, via, rules, flagged},
   via = viaConjText[ed["ViaConjugate"]];
+  rules = unverifiedRulesFor[f, t]; flagged = ed["L2"] && rules =!= {};
   blocks = Table[
     With[{tag = ToString[L], ln = If[L === 1, "One-loop entry", "Two-loop entry"]},
      If[! ed["L" <> tag], Nothing,
-      Column[{
-        Row[{Style[ln, Bold, 13, FontFamily -> $uiFont], Style["   (" <> ToString[ed["NTerms" <> tag]] <> " terms)", Gray, 11, FontFamily -> $uiFont]}],
+      Column[Join[If[L === 2 && flagged, {unverifiedBanner[rules]}, {}], {
+        Row[{Style[ln, Bold, 13, FontFamily -> $uiFont], Style["   (" <> ToString[ed["NTerms" <> tag]] <> " terms)", Gray, 11, FontFamily -> $uiFont],
+          If[L === 2 && flagged, Row[{"   ", warnIcon[14], Style[" not cross-checked", Bold, 11, $warnDark, FontFamily -> $uiFont]}], ""]}],
         entryDisplay[ed["Terms" <> tag], L, showFull],
         Row[{Button["Copy LaTeX", CopyToClipboard[ed["TeX" <> tag]], ImageSize -> {110, 24}], "  ",
-          Button["Copy InputForm", CopyToClipboard[ed["Input" <> tag]], ImageSize -> {120, 24}]}]}, Left, 0.8]]], {L, {1, 2}}];
+          Button["Copy InputForm", CopyToClipboard[ed["Input" <> tag]], ImageSize -> {120, 24}]}]}], Left, 0.8]]], {L, {1, 2}}];
   Column[Join[{
      Row[{opLabel[data, f, 18], Style["   \[RightArrow]   ", 18], opLabel[data, t, 18]}],
      Style[legendKeyText[ed] <> If[via === None, "", "; " <> via] <> ". The entry lists all terms of the beta function of the target that contain the source.", 11, FontFamily -> $uiFont, GrayLevel[0.35]]},
+    If[flagged, {Row[{warnIcon[16], Style["  The two-loop entry below is not cross-checked (\[Gamma]5 ambiguity).", Bold, 12, $warnDark, FontFamily -> $uiFont]}]}, {}],
     blocks], Left, 1.1]];
 
 entryPanel[data_Association, graph_Association, key_, showFull_] := Module[{legs},
@@ -1349,7 +1477,7 @@ explorerUI[data_Association, start_String] := With[{
         Graphics[{$classColors[cid], EdgeForm[GrayLevel[0.4]], Rectangle[{0, 0}, {1, 0.55}, RoundingRadius -> 0.15]}, ImageSize -> {26, 15}, PlotRange -> {{-0.05, 1.05}, {-0.05, 0.6}}, AspectRatio -> Full],
         Style[classLabel[cr[[1]]], 12, FontFamily -> $uiFont]}, "  "]], {cr, data["Classes"]}]},
   DynamicModule[{center = start, history = {}, direction = "Incoming", mode = "Direct", layoutName = "Radial", showSelf = True,
-    excl = True, shown = Association[# -> True & /@ classIDs], thick = 1.8, zoom = 1., ringsAll = False, openSet = {}, openKey = None, selected = None, showFull = False, query = "", browseClass = classIDs[[1]]},
+    excl = True, shown = Association[# -> True & /@ classIDs], thick = 1.8, zoom = 1., showUnv = True, ringsAll = False, openSet = {}, openKey = None, selected = None, showFull = False, query = "", browseClass = classIDs[[1]]},
    Grid[{{
       (* ---------------- left column: controls ---------------- *)
       Panel[Column[{
@@ -1392,13 +1520,16 @@ explorerUI[data_Association, start_String] := With[{
          Spacer[{1, 10}],
          Style["Options", Bold, 12, FontFamily -> $uiFont],
          Row[{Checkbox[Dynamic[showSelf]], "  show self-running badge"}],
+         Row[{Checkbox[Dynamic[showUnv]], "  mark entries not cross-checked"}],
          Row[{Checkbox[Dynamic[excl], Enabled -> Dynamic[mode === "OneLoopSquared"]], "  exclude trivial chains"}],
          Row[{"edge thickness  ", Slider[Dynamic[thick], {0.8, 4., 0.2}, ImageSize -> 110]}],
          Row[{"zoom  ", Slider[Dynamic[zoom], {0.3, 1.5, 0.05}, ImageSize -> 110, ContinuousAction -> False]}],
          Style["Show operator classes", Bold, 12, FontFamily -> $uiFont],
          Column[classRows, Left, 0.3],
          Spacer[{1, 10}],
-         Dynamic[legendEdgeStyles[mode]]}, Left, 0.9], ImageSize -> {290, All}],
+         Dynamic[legendEdgeStyles[mode, showUnv], TrackedSymbols :> {mode, showUnv}],
+         Spacer[{1, 6}],
+         OpenerView[{Row[{warnIcon[14], Style["  Two-loop entries not cross-checked", Bold, 12, FontFamily -> $uiFont]}], unverifiedOverview[$explorerData]}, False]}, Left, 0.9], ImageSize -> {290, All}],
       (* ---------------- middle: the graph ---------------- *)
       Column[{
         Dynamic[infoLine[ExplorerGraphData[$explorerData, center, direction, mode, "ExcludeTrivialChains" -> excl, "HiddenClasses" -> Keys[Select[shown, ! # &]],
@@ -1408,7 +1539,7 @@ explorerUI[data_Association, start_String] := With[{
          Module[{graph, r},
           graph = ExplorerGraphData[$explorerData, center, direction, mode, "ShowSelfRunning" -> showSelf, "ExcludeTrivialChains" -> excl,
             "HiddenClasses" -> Keys[Select[shown, ! # &]], "OpenBranches" -> openBranchesNow[ringsAll, openKey, openSet, center, direction]];
-          r = renderGraphics[$explorerData, graph, layoutName, "EdgeThickness" -> thick, "ShowSelf" -> showSelf, "Zoom" -> zoom,
+          r = renderGraphics[$explorerData, graph, layoutName, "EdgeThickness" -> thick, "ShowSelf" -> showSelf, "Zoom" -> zoom, "ShowUnverified" -> showUnv,
             "OnNodeClick" -> Function[op, If[op =!= center, history = Append[history, center]; center = op; selected = None]],
             (* first-ring chip of a chain view: click opens/closes its branch, shift-click recenters *)
             "OnBranchClick" -> Function[op,
@@ -1423,7 +1554,7 @@ explorerUI[data_Association, start_String] := With[{
              PlotRange -> r["PlotRange"], ImageSize -> r["ImageSize"], PlotRangePadding -> 0, Background -> White, ImagePadding -> 2],
             {Min[sz, 900], Min[sz, 860]}, Scrollbars -> Automatic, ImageSizeAction -> "Scrollable",
             ScrollPosition -> {Max[0, (sz - 900)/2], Max[0, (sz - 860)/2]}]]],
-         TrackedSymbols :> {center, direction, mode, layoutName, showSelf, excl, shown, thick, zoom, ringsAll, openSet, openKey}]}, Left, 0.5],
+         TrackedSymbols :> {center, direction, mode, layoutName, showSelf, showUnv, excl, shown, thick, zoom, ringsAll, openSet, openKey}]}, Left, 0.5],
       (* ---------------- right: side panel ---------------- *)
       Panel[Column[{
          Style["Entry", Bold, 14, FontFamily -> $uiFont],
