@@ -89,6 +89,38 @@ Do[
   {dir, {"Outgoing", "Incoming"}}], {op, ops}];
 check["chain graphs are trees with one copy per (intermediate, endpoint) pair (max " <> ToString[maxLeaves] <> " copies)", treeOK];
 
+(* chain mode: open branches. Nothing open = first ring only; a branch shows exactly the second leg of its intermediate operator *)
+branchOK = True; nBranchCfg = 0;
+SeedRandom[11];
+Do[
+ Do[
+  Module[{full = ExplorerGraphData[d, op, dir, "OneLoopSquared"], none, ring1, some, one, nearOp},
+   ring1 = full["FirstRing"];
+   none = ExplorerGraphData[d, op, dir, "OneLoopSquared", "OpenBranches" -> {}];
+   some = If[ring1 === {}, {}, RandomSample[ring1, Min[2, Length[ring1]]]];
+   one = ExplorerGraphData[d, op, dir, "OneLoopSquared", "OpenBranches" -> some];
+   nearOp[e_] := If[dir === "Outgoing", e["From"], e["To"]];
+   nBranchCfg += 2;
+   branchOK = branchOK
+     && Length[none["Edges"]] === Length[ring1] && Length[none["Vertices"]] === 1 + Length[ring1] && AllTrue[none["Edges"], #["Hop"] === 1 &]
+     && none["NewEndpoints"] === full["NewEndpoints"] && none["BranchCount"] === full["BranchCount"]
+     && Sort[Select[one["Edges"], #["Hop"] === 2 &]] === Sort[Select[full["Edges"], #["Hop"] === 2 && MemberQ[some, nearOp[#]] &]]
+     && Total[Lookup[full["BranchCount"], ring1, 0]] === Count[full["Edges"], e_ /; e["Hop"] === 2]
+     && Total[Lookup[full["BranchCount"], some, 0]] === Count[one["Edges"], e_ /; e["Hop"] === 2]],
+  {dir, {"Outgoing", "Incoming"}}], {op, ops}];
+check["open branches: first ring only / chosen branches / all (" <> ToString[nBranchCfg] <> " graphs)", branchOK];
+(* click state machine of the first-ring chips *)
+Module[{tb = SMEFTADMExplorer`Private`toggleBranch, st, hid = {}},
+ st = tb[d, "cHWB", "Outgoing", hid, False, None, {}, "cHW"];
+ check["click on a first-ring chip opens its branch", st === {False, {"cHWB", "Outgoing"}, {"cHW"}}, st];
+ st = tb[d, "cHWB", "Outgoing", hid, st[[1]], st[[2]], st[[3]], "cHB"];
+ st = tb[d, "cHWB", "Outgoing", hid, st[[1]], st[[2]], st[[3]], "cHW"];
+ check["a second click closes it again; other branches stay open", st[[3]] === {"cHB"}, st];
+ st = tb[d, "cHWB", "Incoming", hid, False, {"cHWB", "Outgoing"}, {"cHB"}, "cHW"];
+ check["open branches are forgotten when the direction changes", st[[3]] === {"cHW"}, st];
+ st = tb[d, "cHWB", "Outgoing", hid, True, None, {}, "cHW"];
+ check["from 'both rings', a click closes just that branch", Length[st[[3]]] === Length[ExplorerGraphData[d, "cHWB", "Outgoing", "OneLoop"]["Vertices"]] - 2 && ! MemberQ[st[[3]], "cHW"], Length[st[[3]]]]];
+
 (* ---------------------------------------------------------------- layouts: no collisions, no overlaps, timing *)
 overlaps[cl_] := Module[{pos = cl["Layout"]["Pos"], sz = cl["Routing"]["Sizes"], o = Keys[cl["Layout"]["Pos"]], c = 0},
   Do[If[i < j, With[{a = pos[o[[i]]], b = pos[o[[j]]], sa = sz[o[[i]]], sb = sz[o[[j]]]},
@@ -104,6 +136,18 @@ Do[
     r = Quiet[Check[P["renderGraphics"][d, g, "Radial", "ShowSelf" -> True], $Failed, All::stop], All::stop];
     nRender++; If[r === $Failed || Head[r] =!= Association, renderMsgs++]],
    {mode, {"OneLoop", "Direct", "OneLoopSquared"}}], {dir, {"Outgoing", "Incoming"}}], {op, ops}];
+(* chain views with nothing open and with a few open branches *)
+Do[
+ Do[
+  Module[{ring1 = ExplorerGraphData[d, op, dir, "OneLoopSquared"]["FirstRing"], g, cl, r},
+   Do[
+    g = ExplorerGraphData[d, op, dir, "OneLoopSquared", "ShowSelfRunning" -> True, "OpenBranches" -> If[open === "few", Take[ring1, UpTo[3]], {}]];
+    cl = P["computeLayout"][d, g, "Radial"];
+    viol += cl["Routing"]["Violations"]; ovl += overlaps[cl];
+    r = Quiet[Check[P["renderGraphics"][d, g, "Radial", "ShowSelf" -> True], $Failed, All::stop], All::stop];
+    nRender++; If[r === $Failed || Head[r] =!= Association, renderMsgs++],
+    {open, {"none", "few"}}]],
+  {dir, {"Outgoing", "Incoming"}}], {op, ops}];
 check["every operator renders in all modes/directions without messages (" <> ToString[nRender] <> " views)", renderMsgs === 0, renderMsgs];
 check["no arrow touches a node it does not start or end at (radial layout)", viol === 0, viol];
 check["no two nodes overlap (radial layout)", ovl === 0, ovl];
@@ -186,7 +230,7 @@ Module[{ui, gr, rules, tmpSyms, ok1, ok2, edgeRule, nodeRule, S},
  edgeRule = First[Select[rules, ! FreeQ[#, {_String, _String, _Integer}] &]];
  ReleaseHold[edgeRule];
  check["clicking an arrow selects its edge", MatchQ[S["selected"], {_String, _String, _Integer}], S["selected"]];
- nodeRule = First[Select[rules, FreeQ[#, {_String, _String, _Integer}] && ! MatchQ[#, Hold[_["cH"]]] &]];
+ nodeRule = First[Select[rules, FreeQ[#, {_String, _String, _Integer}] && FreeQ[#, "cH"] &]];
  ReleaseHold[nodeRule];
  check["clicking an operator recenters the graph and records history", S["center"] =!= "cH" && S["history"] === {"cH"} && S["selected"] === None, S["center"]]];
 
