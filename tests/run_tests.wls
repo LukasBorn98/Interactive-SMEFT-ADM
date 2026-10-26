@@ -203,6 +203,19 @@ g = ExplorerGraphData[d, big[[1, 2]], "Incoming", "Direct"];
 tPanel = First[AbsoluteTiming[P["entryPanel"][d, g, {big[[1, 1]], big[[1, 2]], 1}, True]]];
 check["largest entry (" <> ToString[big[[2, "NTerms2"]]] <> " terms, full expression) builds in < 1 s", tPanel < 1., Round[tPanel, 0.01]];
 
+(* ---------------------------------------------------------------- grouped entries *)
+(* The grouped (collected) display re-expands to the original entry: the sign pulled out of an all-negative group and the signs
+   between groups must reproduce every term's sign. Checked on a pure sign/term count level and on the bracket structure. *)
+Module[{ed = d["Edges", {"cHW", "cH"}], boxes, groups, negGroups, flat},
+ boxes = P["collectedFlowBoxes"][ed["Terms2"], 2];
+ groups = GatherBy[P["sortedTerms"][ed["Terms2"]], Cases[#["Factors"], f_ /; MemberQ[{"Gauge", "Quartic"}, f["Type"]], {1}] &];
+ negGroups = Count[groups, g_ /; AllTrue[g, P["coeffParts"][#["Coeff"]][[1]] < 0 &]];
+ check["grouped entry: one outer bracket after the loop factor, square bracket per group (" <> ToString[Length[groups]] <> " groups)",
+  Length[boxes] === Length[groups] && Count[boxes, "[", Infinity] === Length[groups] && Count[boxes, "]", Infinity] === Length[groups]
+   && Count[boxes, "(", Infinity] === Count[boxes, ")", Infinity] && Count[boxes[[-1]], ")", Infinity] >= 1, {Length[boxes], Count[boxes, "[", Infinity]}];
+ check["grouped entry: minus signs of all-negative groups are pulled out front (" <> ToString[negGroups] <> " groups)",
+  Count[boxes, "-", Infinity] >= negGroups, Count[boxes, "-", Infinity]]];
+
 (* ---------------------------------------------------------------- lazy tooltips *)
 (* Tooltips are built on hover (Dynamic labels): they must evaluate to a tooltip for every edge and node of the largest chain view *)
 Module[{r, labs, vals, size},
@@ -214,6 +227,12 @@ Module[{r, labs, vals, size},
  check["lazy tooltips: " <> ToString[Length[labs]] <> " Dynamic labels (703 expected for the largest chain view), all evaluate to a tooltip",
   Length[labs] === 351 + 352 && AllTrue[vals, MatchQ[#, _Framed] &], Length[labs]];
  check["largest chain view: graphics expression is small (" <> ToString[size] <> " leaves < 120000)", size < 120000]];
+
+(* ---------------------------------------------------------------- no stray Delimiter symbols in the UI *)
+(* Delimiter is a menu symbol; inside a Column/Grid it would be printed as the word "Delimiter" *)
+Module[{ui = SMEFTADMExplorer`SMEFTADMExplorer[d, "cH"], panel},
+ panel = P["entryPanel"][d, ExplorerGraphData[d, "cHWB", "Incoming", "Direct"], {"cHW", "cHWB", 1}, False];
+ check["the UI contains no Delimiter symbol", FreeQ[ui, Delimiter] && FreeQ[panel, Delimiter]]];
 
 (* ---------------------------------------------------------------- click handlers must be self-contained *)
 (* Regression test: handlers that refer to Module-local symbols stop working in the front end (the

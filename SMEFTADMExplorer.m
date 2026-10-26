@@ -1209,28 +1209,58 @@ legendEdgeStyles[mode_String] := Grid[{
    9. Side panel: entries of the selected edge
    ================================================================================================ *)
 
-(* an entry collected by the gauge/quartic coupling monomial, truncated to maxTerms terms *)
-collectedBoxLines[terms_List, L_Integer, maxTerms_Integer : 24] := Module[
-  {groups, shown = 0, lines = {}, names, total = Length[terms], first = True, grp, inner},
+$entryWidth = 392;
+
+(* Terms of an entry are laid out as running text: the sign stays with its term, a line may break only between terms,
+   so the lines are filled over the whole width of the panel. Returns the items (boxes) of a sum. *)
+termFlowItems[parts_List] := Flatten[MapIndexed[
+   Function[{p, i}, With[{body = StyleBox[p[[2]], LineBreakWithin -> False]},
+     If[First[i] === 1, {If[p[[1]] < 0, StyleBox[RowBox[{"-", "\[ThinSpace]", p[[2]]}], LineBreakWithin -> False], body]},
+      {If[p[[1]] < 0, "-", "+"], body}]]], parts], 1];
+
+(* one sum: prefix, terms, suffix; prefix and suffix stick to the first and the last term. Lines break at the + and - signs. *)
+flowSumBox[prefix_List, items_List, suffix_List] := Module[{its = items},
+  If[its === {}, Return[RowBox[Join[prefix, {"0"}, suffix]]]];
+  its[[1]] = StyleBox[RowBox[Join[prefix, {its[[1]]}]], LineBreakWithin -> False];
+  its[[-1]] = StyleBox[RowBox[Join[{its[[-1]]}, suffix]], LineBreakWithin -> False];
+  RowBox[its]];
+
+(* An entry collected by the gauge/quartic coupling monomial, truncated to maxTerms terms; returns a list of boxes, one
+   per coupling group:   loop factor ( s1 m1 [ ... ]  + s2 m2 [ ... ]  ...  ).
+   A group whose terms are all negative has its minus sign taken out in front of the monomial. *)
+collectedFlowBoxes[terms_List, L_Integer, maxTerms_Integer : 24] := Module[
+  {groups, plan = {}, rem = maxTerms, trunc = False, total = Length[terms], shown, out, nG},
   groups = GatherBy[sortedTerms[terms], Cases[#["Factors"], f_ /; MemberQ[{"Gauge", "Quartic"}, f["Type"]], {1}] &];
   groups = SortBy[groups, {Length[#[[1]]["Factors"]], #[[1]]["Factors"][[1, "Name"]]} &];
-  Catch[
-   Do[
-    inner = Map[termBoxParts[#, {"Gauge", "Quartic"}] &, grp];
-    AppendTo[lines, RowBox[{If[first, loopPrefactorBox[L], "\[ThinSpace]"], "\[ThinSpace]",
-       monomialDisplayBoxes[Cases[termMonomial[grp[[1]]], m_ /; MemberQ[{"Gauge", "Quartic"}, couplingType[m[[1]]]]]], "\[ThinSpace]", "\[Times]", "\[ThinSpace]", "["}]];
-    first = False;
-    Do[
-     If[shown >= maxTerms, Throw[Null]];
-     AppendTo[lines, RowBox[{"\[ThinSpace]\[ThinSpace]\[ThinSpace]", If[inner[[q, 1]] < 0, "-", "+"], "\[ThinSpace]", inner[[q, 2]]}]];
-     shown++, {q, Length[inner]}];
-    AppendTo[lines, "]"], {grp, groups}]];
-  If[shown < total, AppendTo[lines, StyleBox["\[Ellipsis]  (" <> ToString[total - shown] <> " more terms hidden; tick \"Show full expression\")", FontColor -> GrayLevel[0.4], FontSlant -> "Italic"]]];
-  lines];
+  Do[
+   If[rem <= 0, trunc = True; Break[]];
+   With[{n = Min[Length[grp], rem]}, AppendTo[plan, {grp, n}]; If[n < Length[grp], trunc = True]; rem -= n], {grp, groups}];
+  nG = Length[plan];
+  shown = Total[plan[[All, 2]]];
+  out = MapIndexed[
+    Function[{pl, idx}, Module[{grp = pl[[1]], n = pl[[2]], gi = idx[[1]], allNeg, parts, mono, sgn, prefix, suffix},
+      allNeg = AllTrue[grp, coeffParts[#["Coeff"]][[1]] < 0 &];
+      parts = termBoxParts[#, {"Gauge", "Quartic"}] & /@ Take[grp, n];
+      If[allNeg, parts = {-#[[1]], #[[2]]} & /@ parts];
+      mono = Cases[termMonomial[grp[[1]]], m_ /; MemberQ[{"Gauge", "Quartic"}, couplingType[m[[1]]]]];
+      sgn = If[allNeg, "-", "+"];
+      prefix = Join[
+        If[gi === 1, {loopPrefactorBox[L], "\[ThinSpace]", "(", "\[ThinSpace]"}, {}],
+        If[gi === 1 && ! allNeg, {}, {sgn, "\[ThinSpace]"}],
+        If[mono === {}, {}, {monomialDisplayBoxes[mono], "\[ThinSpace]", "\[Times]", "\[ThinSpace]"}],
+        {"[", "\[ThinSpace]"}];
+      suffix = Join[{"\[ThinSpace]", "]"},
+        If[gi === nG, Join[If[trunc, {"\[ThinSpace]", "+", "\[ThinSpace]", "\[Ellipsis]"}, {}], {"\[ThinSpace]", ")"}], {}]];
+      flowSumBox[prefix, termFlowItems[parts], suffix]]],
+    plan];
+  If[trunc, AppendTo[out, StyleBox["(" <> ToString[total - shown] <> " more terms hidden; tick \"Show full expression\")", FontColor -> GrayLevel[0.4], FontSlant -> "Italic"]]];
+  out];
 
-entryDisplay[terms_List, L_Integer, full_] := Module[{n = Length[terms], lines},
-  lines = If[n <= 12 || TrueQ[full], entryBoxLines[terms, L, 1], collectedBoxLines[terms, L]];
-  Style[Column[RawBoxes /@ lines, Left, 0.55], SingleLetterItalics -> False, FontSize -> 13]];
+entryDisplay[terms_List, L_Integer, full_] := Module[{n = Length[terms], boxes},
+  boxes = If[n <= 12 || TrueQ[full],
+    {flowSumBox[{loopPrefactorBox[L], "\[ThinSpace]", "(", "\[ThinSpace]"}, termFlowItems[termBoxParts /@ sortedTerms[terms]], {"\[ThinSpace]", ")"}]},
+    collectedFlowBoxes[terms, L]];
+  Style[Column[Pane[RawBoxes[#], $entryWidth] & /@ boxes, Left, 0.9], SingleLetterItalics -> False, FontSize -> 13]];
 
 legendKeyText[e_Association] := Which[e["L1"] && e["L2"], "1-loop + 2-loop", e["L1"], "1-loop only", True, "2-loop only"];
 
@@ -1325,7 +1355,7 @@ explorerUI[data_Association, start_String] := With[{
       Panel[Column[{
          Style["SMEFT ADM Explorer", Bold, 18, FontFamily -> $uiFont],
          Style["dimension-six SMEFT, Mainz basis, one and two loops", Gray, 11, FontFamily -> $uiFont],
-         Delimiter,
+         Spacer[{1, 10}],
          Style["Center operator", Bold, 12, FontFamily -> $uiFont],
          Dynamic[Row[{Style[opLabel[$explorerData, center, 24], Bold], "  ", Style["(" <> center <> ")", Gray, 11]}]],
          Row[{Button["\[LeftTriangle] Back",
@@ -1339,7 +1369,7 @@ explorerUI[data_Association, start_String] := With[{
          Row[{PopupMenu[Dynamic[browseClass], Table[cr[[1]] -> Style[classLabel[cr[[1]]], 12, FontFamily -> $uiFont], {cr, $explorerData["Classes"]}], ImageSize -> {120, 24}], " ",
            Dynamic[PopupMenu[Dynamic[center, Function[op, If[op =!= center, history = Append[history, center]]; center = op; selected = None]],
              Table[op -> opLabel[$explorerData, op, 13], {op, Select[opsAll, $explorerData["OperatorInfo", #, "Class"] === browseClass &]}], ImageSize -> {110, 24}]]}],
-         Delimiter,
+         Spacer[{1, 10}],
          Style["Direction", Bold, 12, FontFamily -> $uiFont],
          RadioButtonBar[Dynamic[direction, (direction = #; selected = None) &], {"Outgoing" -> "Runs into (center \[RightArrow] X)", "Incoming" -> "Generated by (X \[RightArrow] center)"}, Appearance -> "Vertical"],
          Style["Mode", Bold, 12, FontFamily -> $uiFont],
@@ -1359,7 +1389,7 @@ explorerUI[data_Association, start_String] := With[{
              Style["Layout", Bold, 12, FontFamily -> $uiFont],
              RadioButtonBar[Dynamic[layoutName, (layoutName = #; selected = None) &], {"Radial" -> "Radial (rings)", "Spring" -> "Spring"}]}, Left, 0.4]],
           TrackedSymbols :> {mode}],
-         Delimiter,
+         Spacer[{1, 10}],
          Style["Options", Bold, 12, FontFamily -> $uiFont],
          Row[{Checkbox[Dynamic[showSelf]], "  show self-running badge"}],
          Row[{Checkbox[Dynamic[excl], Enabled -> Dynamic[mode === "OneLoopSquared"]], "  exclude trivial chains"}],
@@ -1367,7 +1397,7 @@ explorerUI[data_Association, start_String] := With[{
          Row[{"zoom  ", Slider[Dynamic[zoom], {0.3, 1.5, 0.05}, ImageSize -> 110, ContinuousAction -> False]}],
          Style["Show operator classes", Bold, 12, FontFamily -> $uiFont],
          Column[classRows, Left, 0.3],
-         Delimiter,
+         Spacer[{1, 10}],
          Dynamic[legendEdgeStyles[mode]]}, Left, 0.9], ImageSize -> {290, All}],
       (* ---------------- middle: the graph ---------------- *)
       Column[{
@@ -1398,7 +1428,7 @@ explorerUI[data_Association, start_String] := With[{
       Panel[Column[{
          Style["Entry", Bold, 14, FontFamily -> $uiFont],
          Row[{Checkbox[Dynamic[showFull]], "  show full expression (long entries are otherwise collected and truncated)"}],
-         Delimiter,
+         Spacer[{1, 10}],
          Dynamic[Pane[
            entryPanel[$explorerData, ExplorerGraphData[$explorerData, center, direction, mode, "ExcludeTrivialChains" -> excl, "HiddenClasses" -> Keys[Select[shown, ! # &]]], selected, showFull],
            {420, 700}, Scrollbars -> {Automatic, Automatic}, AppearanceElements -> None], TrackedSymbols :> {selected, showFull, center, direction, mode, excl, shown}]}, Left, 0.8],
