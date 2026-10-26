@@ -1047,17 +1047,32 @@ edgeTooltip[data_Association, e_Association] := Module[{f = e["From"], t = e["To
      {Style["click for the full entry", Gray, 10, FontFamily -> $uiFont]}], Left, 0.35],
    FrameStyle -> GrayLevel[0.7], Background -> White, FrameMargins -> 6]];
 
-nodeTooltip[data_Association, graph_Association, id_String] := With[{op = graph["NodeOp"][id]}, Framed[Column[{
+(* what the node tooltip needs, as a small association (so that the tooltip can be built lazily, on hover) *)
+nodeTooltipInfo[graph_Association, id_String] := With[{op = graph["NodeOp"][id]},
+  <|"Op" -> op, "Center" -> (id === graph["Center"]), "New" -> MemberQ[graph["NewEndpoints"], op],
+   "Leaf" -> (TrueQ[graph["Tree"]] && id =!= graph["Center"] && graph["Depth"][id] === 2),
+   "Outgoing" -> (graph["Direction"] === "Outgoing"),
+   "Parent" -> If[TrueQ[graph["Tree"]] && KeyExistsQ[graph["Parent"], id], graph["Parent"][id], None],
+   "Others" -> If[TrueQ[graph["Tree"]] && KeyExistsQ[graph["Parent"], id], Length[DeleteCases[graph["Copies"][op], graph["Parent"][id]]], 0]|>];
+
+nodeTooltipFromInfo[data_Association, info_Association] := With[{op = info["Op"]}, Framed[Column[{
      opLabel[data, op, 15],
      Style[classDisplayName[data, data["OperatorInfo", op, "Class"]] <> " operator   (" <> op <> ")", 11, FontFamily -> $uiFont],
-     If[MemberQ[graph["NewEndpoints"], op], Style[newOrderText[], 11, FontFamily -> $uiFont, FontColor -> $haloColor], Nothing],
-     If[TrueQ[graph["Tree"]] && id =!= graph["Center"] && graph["Depth"][id] === 2,
-      Style[Row[{If[graph["Direction"] === "Outgoing", "reached via ", "reaching the centre via "], opLabel[data, graph["Parent"][id], 12],
-         With[{others = DeleteCases[graph["Copies"][op], graph["Parent"][id]]},
-          If[others === {}, "  (only this chain)", Row[{"  (this operator also appears under ", Length[others], " other intermediate operator", If[Length[others] > 1, "s", ""], ")"}]]]}], 11, FontFamily -> $uiFont],
+     If[info["New"], Style[newOrderText[], 11, FontFamily -> $uiFont, FontColor -> $haloColor], Nothing],
+     If[info["Leaf"],
+      Style[Row[{If[info["Outgoing"], "reached via ", "reaching the centre via "], opLabel[data, info["Parent"], 12],
+         If[info["Others"] === 0, "  (only this chain)", Row[{"  (this operator also appears under ", info["Others"], " other intermediate operator", If[info["Others"] > 1, "s", ""], ")"}]]}], 11, FontFamily -> $uiFont],
       Nothing],
-     Style[If[id === graph["Center"], "current center", "click to recenter on this operator"], Gray, 10, FontFamily -> $uiFont]}, Left, 0.3],
+     Style[If[info["Center"], "current center", "click to recenter on this operator"], Gray, 10, FontFamily -> $uiFont]}, Left, 0.3],
    FrameStyle -> GrayLevel[0.7], Background -> White, FrameMargins -> 6]];
+
+nodeTooltip[data_Association, graph_Association, id_String] := nodeTooltipFromInfo[data, nodeTooltipInfo[graph, id]];
+
+(* Tooltips are built only when the mouse rests on an object: a graph has up to 350 arrows and 350 nodes, and
+   building (and shipping to the front end) all their typeset tooltips made the large views sluggish. *)
+lazyEdgeTooltip[e_Association] := With[{f = e["From"], t = e["To"], h = e["Hop"]},
+  Dynamic[edgeTooltip[$explorerData, <|"From" -> f, "To" -> t, "Hop" -> h|>]]];
+lazyNodeTooltip[info_Association] := With[{i = info}, Dynamic[nodeTooltipFromInfo[$explorerData, i]]];
 
 Options[renderGraphics] = {"EdgeThickness" -> 1.8, "CanvasSize" -> 880, "Zoom" -> 1., "OnNodeClick" -> (None &), "OnEdgeClick" -> (None &), "ShowSelf" -> False};
 
@@ -1085,10 +1100,11 @@ renderGraphics[data_Association, graph_Association, layoutName_String, OptionsPa
        key = {e["From"], e["To"], e["Hop"]}, ahs = If[TrueQ[graph["Tree"]] && e["Hop"] === 2, ahSize 0.6, ahSize]},
       EventHandler[
        Tooltip[
-        Mouseover[
-         {{col, AbsoluteThickness[th], dash, Arrowheads[{{ahs, 1}}], Arrow[Line[pts]]}, {White, Opacity[0.01], AbsoluteThickness[11], Line[pts]}},
-         {{Darker[col, 0.25], AbsoluteThickness[th + 2.2], dash, Arrowheads[{{ahs 1.25, 1}}], Arrow[Line[pts]]}, {White, Opacity[0.01], AbsoluteThickness[11], Line[pts]}}],
-        edgeTooltip[data, e]],
+        {{col, AbsoluteThickness[th], dash, Arrowheads[{{ahs, 1}}], Arrow[Line[pts]]},
+         (* the hit line is invisible; under the mouse it is replaced by the thick highlighted arrow *)
+         Mouseover[{White, Opacity[0.01], AbsoluteThickness[11], Line[pts]},
+          {{Darker[col, 0.25], AbsoluteThickness[th + 2.2], dash, Arrowheads[{{ahs 1.25, 1}}], Arrow[Line[pts]]}, {White, Opacity[0.01], AbsoluteThickness[11], Line[pts]}}]},
+        lazyEdgeTooltip[e]],
        {"MouseClicked" :> onEdge[key]}]]], {i, Length[edges]}]];
   edgePrims = edgePrims[[Ordering[If[#["Color"] === "Green", 0, 1] & /@ edges, All, Less]]];
   nodePrims = With[{onNode = onNode}, Table[
@@ -1104,10 +1120,11 @@ renderGraphics[data_Association, graph_Association, layoutName_String, OptionsPa
           Text[Style[selfBadgeString[graph["Self"]], FontFamily -> $uiFont, FontSize -> 9.5 z, FontColor -> GrayLevel[0.15]], p + {0, -14 z}], {}]},
        EventHandler[
         Tooltip[
-         Mouseover[
-          {halo, EdgeForm[{AbsoluteThickness[If[isC, 2.4, 1]], If[isC, Black, GrayLevel[0.35]]}], FaceForm[fill], rect, lab, selfTxt},
-          {halo, EdgeForm[{AbsoluteThickness[2.2], RGBColor["#1565C0"]}], FaceForm[Lighter[fill, 0.25]], rect, lab, selfTxt}],
-         nodeTooltip[data, graph, id]],
+         {halo, EdgeForm[{AbsoluteThickness[If[isC, 2.4, 1]], If[isC, Black, GrayLevel[0.35]]}], FaceForm[fill], rect, lab, selfTxt,
+          (* under the mouse a translucent overlay lightens the chip and draws a blue frame *)
+          Mouseover[{EdgeForm[None], FaceForm[GrayLevel[1, 0.01]], rect},
+           {EdgeForm[{AbsoluteThickness[2.2], RGBColor["#1565C0"]}], FaceForm[GrayLevel[1, 0.3]], rect}]},
+         lazyNodeTooltip[nodeTooltipInfo[graph, id]]],
         {"MouseClicked" :> onNode[op]}]]]], {op0, graph["Vertices"]}]];
   <|"Primitives" -> {edgePrims, nodePrims}, "PlotRange" -> R z {{-1, 1}, {-1, 1}}, "ImageSize" -> 2 R z, "Zoom" -> z,
     "Paths" -> paths, "Positions" -> Association[# -> z pos[#] & /@ Keys[pos]], "Violations" -> rt["Violations"], "Radius" -> R|>];

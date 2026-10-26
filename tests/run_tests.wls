@@ -159,6 +159,18 @@ g = ExplorerGraphData[d, big[[1, 2]], "Incoming", "Direct"];
 tPanel = First[AbsoluteTiming[P["entryPanel"][d, g, {big[[1, 1]], big[[1, 2]], 1}, True]]];
 check["largest entry (" <> ToString[big[[2, "NTerms2"]]] <> " terms, full expression) builds in < 1 s", tPanel < 1., Round[tPanel, 0.01]];
 
+(* ---------------------------------------------------------------- lazy tooltips *)
+(* Tooltips are built on hover (Dynamic labels): they must evaluate to a tooltip for every edge and node of the largest chain view *)
+Module[{r, labs, vals, size},
+ SMEFTADMExplorer`Private`$explorerData = d;
+ r = P["renderGraphics"][d, ExplorerGraphData[d, "cuH", "Incoming", "OneLoopSquared"], "Radial"];
+ labs = Cases[r["Primitives"], Tooltip[_, lab_Dynamic] :> lab, Infinity];
+ vals = First /@ labs;
+ size = LeafCount[r["Primitives"]];
+ check["lazy tooltips: " <> ToString[Length[labs]] <> " Dynamic labels (703 expected for the largest chain view), all evaluate to a tooltip",
+  Length[labs] === 351 + 352 && AllTrue[vals, MatchQ[#, _Framed] &], Length[labs]];
+ check["largest chain view: graphics expression is small (" <> ToString[size] <> " leaves < 120000)", size < 120000]];
+
 (* ---------------------------------------------------------------- click handlers must be self-contained *)
 (* Regression test: handlers that refer to Module-local symbols stop working in the front end (the
    temporary symbols are removed once only the front end holds the graphic). *)
