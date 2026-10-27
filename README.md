@@ -88,7 +88,7 @@ Three views use these numbers:
 
 **Good to know**
 
-* Components are the **independent** ones (DsixTools conventions): redundant components (e.g. C<sub>ll</sub><sup>2121</sup> = C<sub>ll</sub><sup>1212</sup>) are folded into their representative. Complex coefficients have two columns, C and C<sup>*</sup>; the rows are the C entries (the C<sup>*</sup> rows are their complex conjugates).
+* Components are the **independent** ones (DsixTools conventions): redundant components (e.g. C<sub>ll</sub><sup>2121</sup> = C<sub>ll</sub><sup>1212</sup>) are folded into their representative. Complex coefficients have two columns, C and C<sup>&lowast;</sup>; the rows are the C entries (the C<sup>&lowast;</sup> rows are their complex conjugates).
 * The Mainz operators contain gauge couplings (e.g. O<sub>HG</sub> = g<sub>s</sub><sup>2</sup> H<sup>†</sup>H G G), so the numbers refer to the Mainz-normalised coefficients. λ is normalised as V ⊃ (λ/2)(H<sup>†</sup>H)<sup>2</sup>.
 * Elements below 10<sup>−14</sup> are not stored. The Weinberg operator and the baryon-number-violating operators are not shown.
 * **Reference point** (μ = M<sub>t</sub> = 173.1 GeV, full SM, MS-bar): gauge couplings, λ and running masses from Huang & Zhou, [arXiv:2009.04851](https://arxiv.org/abs/2009.04851) (Tables 2, 3, 5, 6; y<sub>f</sub> = √2 m<sub>f</sub>/246 GeV; λ = 2 × 0.12607 in the Mainz convention); CKM from PDG 2024 (Wolfenstein λ = 0.22501, A = 0.826, ρ̄ = 0.1591, η̄ = 0.3523), not run to M<sub>t</sub>. The table is also in the left column (*Reference point*).
